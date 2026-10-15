@@ -1,0 +1,45 @@
+[project]
+name = "frozen-lake"
+version = "0.1.0"
+description = "Time-performance trade-off of BFS and Expectimax as base policies for Monte Carlo Rollout in stochastic FrozenLake"
+readme = "README.md"
+authors = [
+    { name = "mariojam", email = "mj.andrade.moreira@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "gymnasium>=1.4.0",
+    "matplotlib>=3.11.2",
+    "textual>=8.2.8",
+    "typer>=0.27.3",
+]
+
+[project.scripts]
+frozen-lake = "frozen_lake.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.17.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.format]
+# Markdown code blocks are illustrative sketches, not source to reformat.
+exclude = ["*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
