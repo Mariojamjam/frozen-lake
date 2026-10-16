@@ -39,9 +39,18 @@ No result is reported here. All numbers in the worked examples are either comput
 
 ## 1. Motivation and research question
 
-**Rollout** is a simple and widely used way to improve decisions under uncertainty. Before acting, the agent simulates what would happen after each possible action if a fixed *base policy* took over from the next step on. It then picks the action whose simulations went best. The base policy is therefore the engine of every simulation: it determines both how informative the simulations are and how much they cost to set up.
+Many real decision problems share one difficulty: **actions do not have guaranteed outcomes**. A robot on a wet floor may slide sideways; a delivery may be delayed; a treatment may not work. An agent in such a world has to decide not only *where* it wants to go, but also *how much risk* it is willing to take on the way.
 
-This creates a genuine design question. A **cheap** base policy, such as one that follows deterministic shortest paths, ignores the risk of slipping. A **sophisticated** base policy, such as depth-limited Expectimax, reasons explicitly about stochastic outcomes, but it is more expensive to build. Rollout's own sampling already exposes some of the risk the cheap policy ignores. It is therefore not obvious whether the sophisticated policy still adds value once Rollout is applied, or whether the cheap policy delivers comparable success for a fraction of the computation.
+There are two broad ways to plan in such a world:
+
+1. **Plan as if the world were deterministic, then react.** Compute the best route assuming every action works, and recompute the next move whenever something goes wrong. This is cheap, but it treats a safe route and a dangerous route of the same length as equally good.
+2. **Reason explicitly about probabilities.** Weigh every possible outcome of every action by its probability. This captures risk, but the number of possible futures grows very quickly, and so does the cost.
+
+**Rollout** is a third idea that sits between them. Before each real move, the agent *imagines* each possible action: it plays out many quick simulated futures that start with that action, letting a simple rule of thumb choose all later moves. It then makes the move whose simulated futures went best. A chess player who, before each move, mentally plays out a few quick games with a simple strategy is doing something similar. The rule of thumb is called the **base policy**. It is the engine of every simulation, so it determines both how informative the simulations are and how much they cost.
+
+This creates a genuine design question. A **cheap** base policy, such as one that follows deterministic shortest paths, ignores the risk of slipping. A **sophisticated** base policy, such as depth-limited Expectimax, reasons explicitly about stochastic outcomes, but it is more expensive to build. Rollout's own sampling already exposes some of the risk the cheap policy ignores, because the simulated futures include the slips. It is therefore not obvious whether the sophisticated policy still adds value once Rollout is applied, or whether the cheap policy delivers comparable success for a fraction of the computation.
+
+This study answers that question empirically, in a setting simple enough to control completely and rich enough to make the question non-trivial: the slippery FrozenLake.
 
 > **Research question.** How does the choice of base policy (BFS or Expectimax) affect the trade-off between computational time and success rate in Monte Carlo Rollout across stochastic FrozenLake environments of increasing size?
 
@@ -49,7 +58,27 @@ This creates a genuine design question. A **cheap** base policy, such as one tha
 
 The answer is expected to be a *description of a trade-off*, not a single winner. The study measures how much success the more sophisticated base policy adds, how much that difference costs, and how both vary with map size and simulation budget. Success and time remain separate dimensions: without a predefined utility function or cost limit, no single number can decide whether a gain is "worth it" (§7.5).
 
-### 1.1 Hypotheses
+### 1.1 The study at a glance
+
+```mermaid
+flowchart LR
+  M[Saved maps<br/>of increasing size] --> B1[Build BFS<br/>policy table]
+  M --> B2[Build Expectimax<br/>policy table]
+  B1 --> S1[BFS]
+  B1 --> S3[BFS-RO<br/>Rollout over BFS]
+  B2 --> S2[EXP]
+  B2 --> S4[EXP-RO<br/>Rollout over Expectimax]
+  S1 & S2 & S3 & S4 --> E[Real episodes<br/>same maps, same seeds]
+  E --> O[Success rate and<br/>computation time]
+```
+
+1. **Maps.** Generate lakes of increasing size from fixed seeds and save them, so that every strategy faces exactly the same lakes.
+2. **Policies.** For each map, build two complete policy tables, one with BFS and one with Expectimax, and time each build.
+3. **Strategies.** Play real episodes with four strategies: each table used directly, and each table used as the base policy of the *same* Rollout procedure.
+4. **Measurements.** Record, for every episode and every decision, whether the agent succeeded and how much computation it used.
+5. **Comparison.** Estimate how much success Expectimax adds over BFS inside Rollout, how much that costs, and how both change with map size and the number of simulations.
+
+### 1.2 Hypotheses
 
 The hypotheses are questions to be tested, not expected results.
 
@@ -63,7 +92,24 @@ The hypotheses are questions to be tested, not expected results.
 
 ## 2. The decision problem
 
-### 2.1 The lake
+### 2.1 What FrozenLake is
+
+FrozenLake is a classic benchmark environment distributed with [Gymnasium](https://gymnasium.farama.org/environments/toy_text/frozen_lake/), the standard Python library of decision-making environments maintained by the Farama Foundation (the successor of OpenAI Gym). Its story is simple: an agent must walk across a frozen lake from a start tile to a goal tile. Some tiles are holes in the ice, and falling into one ends the attempt. The ice is slippery, so the agent does not always move in the direction it chooses.
+
+Despite its simplicity, FrozenLake contains the ingredients that make decision-making under uncertainty hard:
+- **Uncertain outcomes:** the same action can lead to different places.
+- **Irreversible failure:** a hole ends the episode; there is no recovering from a bad slip.
+- **Sparse, delayed reward:** the agent learns nothing about success until it actually reaches the goal.
+- **Scalable difficulty:** a single number, the grid size, controls how long the routes are and how expensive planning becomes.
+
+It also suits this study for three methodological reasons:
+1. **The dynamics are fully known and small.** Every possible transition and its exact probability can be read from the environment. The planners can therefore use the true model, and the study can verify that model against the reference implementation.
+2. **There is a built-in gap between "a path exists" and "the agent is likely to arrive".** That gap is exactly what separates a shortest-path planner from a probabilistic one.
+3. **It is a public, standard reference.** Anyone can reproduce the environment exactly.
+
+FrozenLake is often used to study *reinforcement learning*, where the agent must learn from experience because it does not know the dynamics. This study is different: the dynamics are **known**, and nothing is learned. The question is how to **plan** with a known model, and at what computational price.
+
+### 2.2 The lake
 
 The environment is Gymnasium `FrozenLake-v1` (**Fixed**). A map is an $n \times n$ grid of tiles:
 
@@ -92,7 +138,7 @@ The running example used throughout this document is the standard 4×4 map. Its 
  H F F G      12 13 14 15
 ```
 
-### 2.2 Slippery movement
+### 2.3 Slippery movement
 
 The agent chooses an **intended** direction $a \in \mathcal{A} = \{\text{LEFT}, \text{DOWN}, \text{RIGHT}, \text{UP}\}$, encoded as 0, 1, 2, 3. The ice then decides where it actually goes (**Fixed**):
 
@@ -119,7 +165,7 @@ The perpendicular directions rotate with the intended one. For RIGHT they are UP
 
 At borders, two different directions can lead to the same state. In the top-left corner (state 0), choosing LEFT keeps the agent in place with probability $0.8 + 0.1 = 0.9$. The transition model keeps one record per direction, and the probability mass of records with the same destination adds up correctly.
 
-### 2.3 The problem as a Markov Decision Process
+### 2.4 The problem as a Markov Decision Process
 
 Formally, the problem is a Markov Decision Process (MDP):
 
@@ -137,7 +183,7 @@ Each possible outcome of an action is stored as a **transition record** $(p, s',
 
 The reward is **sparse**: the agent receives no signal until it reaches the goal. Most decisions give no immediate evidence of whether they were good, and this is what makes planning necessary.
 
-### 2.4 How an episode ends
+### 2.5 How an episode ends
 
 A real episode ends in exactly one of three ways:
 
@@ -151,7 +197,7 @@ Termination is part of the problem; truncation is an external time budget. A hol
 
 The step limit is the same for all strategies on a given map. It is set explicitly instead of relying on the `FrozenLake-v1` preset, which silently caps every map at 100 steps. The candidate limit is $T_{\max} = 4n^2$ (**Pilot candidate**).
 
-### 2.5 A path is not a guarantee
+### 2.6 A path is not a guarantee
 
 A randomly generated map is accepted only if a hole-free path exists from `S` to `G` in the **deterministic** grid. That check says nothing about how likely an agent is to arrive under slipping. A map can have a short safe path that is very hard to follow because holes line its sides. This gap between deterministic reachability and stochastic success is exactly what separates the two base policies.
 
@@ -211,11 +257,27 @@ Planning evaluates hypothetical futures; acting commits one move in the real env
 
 ## 4. The two base policies
 
+The two base policies were chosen because they sit at two ends of classical search:
+- **BFS** is the textbook *deterministic graph search*. It is fast, simple, and optimal, but only for a world without slipping.
+- **Expectimax** is the textbook *search under chance*. It models every slip explicitly, but only a limited number of moves ahead, and at a much higher cost.
+
+Both produce the **same kind of object**: a table with one action for each state. Swapping one table for the other inside Rollout changes nothing else, so any difference in results is attributable to the base policy.
+
 Both base policies are **precomputed once per map** and stored as tables (**Fixed**). During an episode, and inside every Rollout simulation, the next action is a table lookup costing $O(1)$. No planner is re-run during simulations.
 
 ### 4.1 BFS: shortest deterministic paths
 
-Breadth-first search (BFS) finds shortest paths in a graph with unit edge costs. Here, the graph is the grid of non-hole tiles with four-neighbor connections. The policy ignores slipping by construction: it optimizes path *length*, not the probability of arriving.
+**The idea.** Breadth-first search (BFS) explores a graph in *layers*, like ripples spreading from a stone dropped in water. First it finds everything one step away, then everything two steps away, and so on. A first-in, first-out (FIFO) queue keeps this order. Because of the layer order, the first time BFS reaches a node, it has reached it by a shortest path. In a graph where every edge costs the same, BFS therefore finds minimum-length paths.
+
+**Turning the lake into a graph.** To apply BFS, the lake is simplified into a *deterministic abstraction*:
+- every non-hole tile becomes a node;
+- two nodes are connected if the tiles are horizontal or vertical neighbors;
+- holes are removed from the graph;
+- every move costs one step, and **slipping is ignored**.
+
+BFS answers the question "how many moves does the shortest safe route take?" in this simplified world. It cannot ask "how likely am I to survive that route?", because the abstraction has no probabilities.
+
+**How BFS is used here.** The study does not use BFS to find *one* path from the start, because a single path is useless as soon as the agent slips off it. It uses BFS to compute the distance from *every* tile to the goal, and turns those distances into a policy that covers every tile the agent might slip onto.
 
 **Reverse BFS.** Instead of searching from every state to the goal, a single BFS runs *from the goal* and computes the distance $d_{\text{BFS}}(s, G)$ of every state at once. Because the grid's connections are symmetric, distances to the goal equal distances from the goal.
 
@@ -241,20 +303,46 @@ where $T_{\text{det}}(s, a)$ is the tile the move would reach without slipping. 
  H  2  1  0
 ```
 
+Read as ripples from the goal, the layers are: distance 0 is $\{15\}$, 1 is $\{14\}$, 2 is $\{10, 13\}$, 3 is $\{6, 9\}$, 4 is $\{2, 8\}$, 5 is $\{1, 3, 4\}$, and 6 is $\{0\}$, the start.
+
 From state 6 (distance 3), the shortest-path neighbor is state 10 (distance 2), so $\pi_{\text{BFS}}(6) = \text{DOWN}$. As §4.3 shows, this move carries a 20% chance of falling into a hole, a risk that BFS never considers.
+
+**What BFS gets right and wrong.**
+- *Right:* it is optimal in the world without slipping, very cheap to build, and, as a complete table, it gives a sensible action from any tile the agent slips onto.
+- *Wrong:* it gives the same value to a route along the open ice and a route between two holes, if they have the same length. It is **risk-blind** by construction.
+
+This makes BFS the natural *cheap baseline*: the strongest policy that can be built without looking at the probabilities.
 
 **Cost.** BFS visits each traversable state once and checks at most four neighbors, so building the distances takes $O(V + E) = O(n^2)$ time and $O(n^2)$ memory.
 
 ### 4.2 Depth-limited Expectimax: reasoning about outcomes
 
-Expectimax plans for an environment that is random but not adversarial. It alternates two kinds of nodes:
+**The idea.** Expectimax comes from game-tree search. In a two-player game such as chess, *Minimax* looks ahead by alternating the player's moves (who picks the best option) and the opponent's moves (who picks the worst option for the player). In FrozenLake there is no opponent, only the ice, which is random but not hostile. Expectimax replaces the opponent with **chance**: instead of assuming the worst outcome, it averages the outcomes, weighted by their probabilities. The look-ahead tree alternates two kinds of nodes:
 
 - **MAX nodes:** the agent chooses the action with the highest value.
 - **CHANCE nodes:** the environment's outcomes are averaged, weighted by their probabilities.
 
-Unlike Minimax, which assumes the worst outcome, Expectimax takes the expectation.
+One level of the tree for state 6 of the running example looks like this:
 
-Let $D$ be the search depth, $d$ the *remaining* depth during the recursion, and $h$ the leaf heuristic. The values are defined recursively:
+```text
+                                MAX: state 6, pick the best action
+         ┌───────────────────┬─────────┴─────────┬───────────────────┐
+       LEFT                DOWN                RIGHT                 UP
+      CHANCE              CHANCE               CHANCE              CHANCE
+   0.1  0.8  0.1       0.1  0.8  0.1        0.1  0.8  0.1       0.1  0.8  0.1
+    │    │    │         │    │    │          │    │    │          │    │    │
+    2    5H   10        5H   10   7H         10   7H   2           7H   2    5H
+```
+
+Each leaf is the tile reached by one outcome. Holes (`H`) end the branch with value 0. Every other leaf is either expanded further, with a new MAX node asking "what would I do if I landed here?", or scored by a heuristic when the look-ahead depth runs out.
+
+**Why the depth must be limited.** Each level multiplies the tree by up to $A \times C = 4 \times 3 = 12$ branches. Six levels already give $12^6 \approx 3$ million leaves for a *single* starting state. Two ideas keep this affordable:
+1. **Memoization.** Different branches often reach the same tile with the same depth left. Caching the value of each $(s, d)$ pair means it is computed once. A 4×4 map searched to depth 6 has at most $16 \times 7 = 112$ such pairs (depths 0 to 6), instead of millions of leaves.
+2. **A depth limit with a heuristic.** The search stops after $D$ moves and scores the frontier with an estimate of progress (below), instead of searching until every branch ends.
+
+**How Expectimax is used here.** Like BFS, it is turned into a complete table: the best action is computed for **every** nonterminal state, before any episode starts.
+
+**The recursion.** Let $D$ be the search depth, $d$ the *remaining* depth during the recursion, and $h$ the leaf heuristic. The values are defined recursively:
 
 $$
 V_0(s) = h(s) \qquad \text{for a nonterminal state at the depth limit,}
@@ -290,6 +378,12 @@ $$
 Closer states score higher. With $\beta = 0.90$ (**Pilot candidate**, fixed as the starting value), one step costs 10% of the score: $h = 0.9$ at distance 1, $0.81$ at distance 2, $0.729$ at distance 3. The heuristic is a **progress score, not a probability of success**. Two consequences are disclosed explicitly:
 1. Expectimax is not independent of BFS: it uses BFS distances at its search frontier.
 2. Its build cost must include computing those distances (§8.1).
+
+**What Expectimax gets right and wrong.**
+- *Right:* within its look-ahead, it weighs every slip by its true probability, so it can prefer a slightly longer route that stays away from holes.
+- *Wrong:* beyond its depth it knows only the BFS distance, which is risk-blind again. It is not an optimal stochastic policy, and it costs more to build than BFS.
+
+This makes Expectimax the natural *sophisticated* candidate: risk-aware, but at a price that grows with depth and map size. The study measures whether that price buys anything once Rollout is added.
 
 ### 4.3 Worked example: one step of Expectimax
 
@@ -431,6 +525,21 @@ The strategies without Rollout are essential baselines. Without them, a differen
 ### 6.3 What "paired" means
 
 Within a comparison, the following are identical: the map, the transition probabilities, the rewards, the step limit, the rollout settings, and the episode identifiers with their seeds. The *trajectories* are not identical. Once two policies choose different actions, they visit different states. The fairness standard is identical **starting conditions and randomization protocol**, not identical paths.
+
+### 6.4 One real decision, four ways
+
+Suppose the agent stands on state 6 of the running example, between two holes, during a real episode. This is what each strategy does before the single real move. The steps are exact; the quantities are not results.
+
+| Strategy | What happens before the move | Work at this decision |
+|---|---|---|
+| `BFS` | Look up $\pi_{\text{BFS}}(6)$ = DOWN in the table. | One lookup |
+| `EXP` | Look up $\pi_{\text{EXP}}(6)$ in the table built before the episode. | One lookup |
+| `BFS-RO` | For each of the 4 actions, simulate $N$ futures: take the action, sample the slip, then follow $\pi_{\text{BFS}}$ until a hole, the goal, or the horizon. Average each action's returns, pick the best, and prefer DOWN on ties. | $4N$ trajectories |
+| `EXP-RO` | Exactly the same procedure, following $\pi_{\text{EXP}}$ inside the simulations, and preferring $\pi_{\text{EXP}}(6)$ on ties. | $4N$ trajectories |
+
+Then every strategy does the same thing: it sends **one** intended action to the real environment. The ice decides the outcome, and the agent observes where it actually landed. With DOWN, it lands on 10 with probability 0.8 and falls into hole 5 or 7 with probability 0.1 each. The next decision starts from the observed tile.
+
+The table shows where the costs come from. The two base-only strategies paid their whole planning cost before the episode, when their tables were built. The two Rollout strategies pay a large cost at *every* decision. Per simulated step that cost is the same for both, because simulations only perform table lookups and samples; the total still depends on how long the imagined futures last before ending in a hole or at the goal. The difference between `BFS-RO` and `EXP-RO` lies elsewhere: in the quality of the futures they imagine, and in the one-time cost of building the Expectimax table.
 
 ---
 
