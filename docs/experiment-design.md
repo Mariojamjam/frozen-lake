@@ -142,11 +142,14 @@ The running example used throughout this document is the standard 4×4 map. Its 
 
 The agent chooses an **intended** direction $a \in \mathcal{A} = \{\text{LEFT}, \text{DOWN}, \text{RIGHT}, \text{UP}\}$, encoded as 0, 1, 2, 3. The ice then decides where it actually goes (**Fixed**):
 
+Let $a_{\perp,1}$ and $a_{\perp,2}$ denote the two directions perpendicular to $a$. Each perpendicular direction has probability $0.1$:
+
 $$
 \Pr(\text{move in direction } b \mid a) =
 \begin{cases}
 0.8, & b = a \quad \text{(intended)},\\
-0.1, & b \text{ is one of the two directions perpendicular to } a,\\
+0.1, & b = a_{\perp,1},\\
+0.1, & b = a_{\perp,2},\\
 0, & b \text{ is opposite to } a .
 \end{cases}
 $$
@@ -477,14 +480,14 @@ This makes Rollout fall back to its base policy when simulations carry no inform
 Each trajectory returns 1 (reached the goal) or 0, so $\widehat{Q}$ is the mean of $N$ Bernoulli draws with mean $Q$. Its standard error is:
 
 $$
-\operatorname{SE}\big(\widehat{Q}\big) = \sqrt{\frac{Q\,(1 - Q)}{N}} .
+\text{SE}\big(\widehat{Q}\big) = \sqrt{\frac{Q\,(1 - Q)}{N}} .
 $$
 
 At the worst case $Q = 0.5$ (*computed*):
 
 | $N$ | 10 | 25 | 50 | 100 |
 |---|---:|---:|---:|---:|
-| $\operatorname{SE}(\widehat{Q})$ | 0.158 | 0.100 | 0.071 | 0.050 |
+| $\text{SE}(\widehat{Q})$ | 0.158 | 0.100 | 0.071 | 0.050 |
 
 With $N = 10$, two actions whose true values differ by 0.1 are frequently ranked in the wrong order. Quadrupling $N$ only halves the error. This is the mechanism behind H3: more samples buy precision at a linear cost, with diminishing returns.
 
@@ -558,7 +561,7 @@ $$
 It is estimated from $E$ episodes as:
 
 $$
-\hat{p}_{k}(m, N) = \frac{\#\{\text{episodes reaching the goal}\}}{E}.
+\hat{p}_{k}(m, N) = \frac{\text{episodes reaching the goal}}{E}.
 $$
 
 For the strategies without Rollout, $N$ does not apply.
