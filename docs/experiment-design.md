@@ -142,11 +142,14 @@ The running example used throughout this document is the standard 4×4 map. Its 
 
 The agent chooses an **intended** direction $a \in \mathcal{A} = \{\text{LEFT}, \text{DOWN}, \text{RIGHT}, \text{UP}\}$, encoded as 0, 1, 2, 3. The ice then decides where it actually goes (**Fixed**):
 
+Let $a_{\perp,1}$ and $a_{\perp,2}$ denote the two directions perpendicular to $a$. Each perpendicular direction has probability $0.1$:
+
 $$
 \Pr(\text{move in direction } b \mid a) =
 \begin{cases}
 0.8, & b = a \quad \text{(intended)},\\
-0.1, & b \text{ is one of the two directions perpendicular to } a,\\
+0.1, & b = a_{\perp,1},\\
+0.1, & b = a_{\perp,2},\\
 0, & b \text{ is opposite to } a .
 \end{cases}
 $$
