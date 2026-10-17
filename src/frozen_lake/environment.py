@@ -154,6 +154,22 @@ def to_coordinates(state: StateId, n: int) -> tuple[int, int]:
     return divmod(state, n)
 
 
+# (row, col) step of each intended move; row 0 is the top of the map.
+_STEPS: dict[Action, tuple[int, int]] = {
+    Action.LEFT: (0, -1),
+    Action.DOWN: (1, 0),
+    Action.RIGHT: (0, 1),
+    Action.UP: (-1, 0),
+}
+
+
+def deterministic_move(state: StateId, action: Action, n: int) -> StateId:
+    """Return the tile an intended move reaches without slipping; a border bump stays in place."""
+    row, col = to_coordinates(state, n)
+    d_row, d_col = _STEPS[action]
+    return to_state(min(max(row + d_row, 0), n - 1), min(max(col + d_col, 0), n - 1), n)
+
+
 def tile_at(desc: MapDesc, state: StateId) -> Tile:
     row, col = to_coordinates(state, map_size(desc))
     return Tile(desc[row][col])
