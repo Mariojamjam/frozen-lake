@@ -4,7 +4,7 @@
 
 This research investigates whether investing more computation in an agent's *initial* decision rule pays off once that rule is refined by Monte Carlo Rollout under uncertainty. The testbed is the slippery Gymnasium [`FrozenLake-v1`](https://gymnasium.farama.org/environments/toy_text/frozen_lake/) environment, where every intended move can go wrong.
 
-> **Status:** early development. The project shell and tooling are in place; the algorithms, the Textual UI and the benchmark runner are **not implemented yet**, and the CLI subcommands are placeholders.
+> **Status:** early development. The validated environment model and a manual terminal explorer are in place. The planners (BFS, Expectimax), Rollout and the benchmark runner are **not implemented yet**.
 
 ## Motivation
 
@@ -79,9 +79,19 @@ uv sync --locked
 uv run frozen-lake --help
 ```
 
+### Explore the lake
+
+```bash
+uv run frozen-lake tui --size 6 --map-seed 42 --episode-seed 42
+```
+
+Choose an intended direction with the arrow keys and press **Space** to take one real step. The ice may slip the agent sideways (10% to each side), and the screen shows where the agent meant to go and where it actually landed. **R** replays the same episode seed, so the same actions reproduce the same slips; **N** starts a new seed; **?** shows help; **Q** quits. Run `uv run frozen-lake tui --help` for every option (map size, seeds, frozen-tile probability, step limit, intended-move probability).
+
+In this explorer, actions come from the keyboard; no planner is involved yet.
+
 ### Planned CLI
 
-The commands below are **targets**. They currently exit with a "not implemented yet" message.
+The commands below are **targets**. They currently exit with a "not implemented yet" message, except `tui`, which already runs the manual explorer and will gain `--strategy` and `--rollouts`.
 
 ```bash
 uv run frozen-lake tui --size 6 --strategy EXP-RO --rollouts 50 --seed 42
@@ -122,14 +132,18 @@ frozen-lake/
 ├── .github/workflows/    # CI
 ├── docs/                 # Supplementary documentation
 ├── src/frozen_lake/      # Python package (import name: frozen_lake)
-│   └── cli.py            # Typer entry point for the `frozen-lake` command
+│   ├── cli.py            # Typer entry point for the `frozen-lake` command
+│   ├── models.py         # Shared types: actions, tiles, transitions, results
+│   ├── environment.py    # Maps, the real environment, transition model, sampler
+│   ├── episodes.py       # Real episodes: one environment step per decision
+│   └── tui/              # Textual explorer (app.py + app.tcss)
 ├── tests/                # pytest suite
 ├── pyproject.toml        # Project metadata, dependencies, Ruff/pytest config
 ├── uv.lock               # Locked dependency versions
 └── justfile              # Optional task aliases
 ```
 
-Modules for the environment model, the planners, rollout, episodes, experiments, plots and the TUI will be added as they are implemented.
+Modules for the planners, rollout, experiments and plots will be added as they are implemented.
 
 ## References
 

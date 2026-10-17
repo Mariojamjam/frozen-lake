@@ -1,6 +1,6 @@
 """Typer entry point for the `frozen-lake` command.
 
-Commands other than `--version` are placeholders until they are implemented.
+Commands other than `--version` and `tui` are placeholders until they are implemented.
 """
 
 from typing import Annotated
@@ -41,9 +41,39 @@ def _not_implemented(command: str) -> None:
 
 
 @app.command()
-def tui() -> None:
-    """Interactive Textual demonstrator."""
-    _not_implemented("tui")
+def tui(
+    size: Annotated[int, typer.Option(min=2, help="Side length of the generated square map.")] = 4,
+    map_seed: Annotated[int, typer.Option(help="Seed that generates the map layout.")] = 42,
+    episode_seed: Annotated[int, typer.Option(help="Seed of the real episode's slips.")] = 42,
+    frozen_probability: Annotated[
+        float, typer.Option(help="Probability that a generated tile is frozen (not a hole).")
+    ] = 0.9,
+    max_steps: Annotated[
+        int | None, typer.Option(min=1, help="Real-step limit per episode; defaults to 4 × size².")
+    ] = None,
+    success_rate: Annotated[
+        float, typer.Option(help="Probability that a move goes in the intended direction.")
+    ] = 0.8,
+) -> None:
+    """Explore a slippery lake step by step, choosing each intended action by hand."""
+    from frozen_lake.environment import generate_map
+
+    try:
+        desc = generate_map(size, frozen_probability, seed=map_seed)
+        steps = max_steps if max_steps is not None else 4 * size * size
+        # Imported here so that commands other than `tui` never load Textual.
+        from frozen_lake.tui.app import FrozenLakeApp
+
+        explorer = FrozenLakeApp(
+            desc,
+            map_seed=map_seed,
+            episode_seed=episode_seed,
+            max_steps=steps,
+            success_rate=success_rate,
+        )
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
+    explorer.run()
 
 
 @app.command()

@@ -54,6 +54,25 @@ class TerminationReason(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class StepEvent:
+    """What happened in one real environment step."""
+
+    step: int  # number of real steps taken so far, including this one
+    state: StateId
+    action: Action
+    # Where the action would have led without slipping. At a border a slip can land on the
+    # same tile, so equal states do not prove that no slip happened.
+    intended_state: StateId
+    next_state: StateId
+    reward: float
+    termination: TerminationReason | None  # None while the episode continues
+
+    @property
+    def moved_as_intended(self) -> bool:
+        return self.next_state == self.intended_state
+
+
+@dataclass(frozen=True, slots=True)
 class PolicyBuildResult:
     policy: Policy
     build_time_ns: int
