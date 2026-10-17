@@ -21,6 +21,16 @@ class Action(IntEnum):
     UP = 3
 
 
+# Fixed order used to break ties between equally good actions, for BFS and for Rollout.
+# Proposed in the design doc; still Open until frozen with the BFS implementation.
+DEFAULT_ACTION_PRIORITY: tuple[Action, ...] = (
+    Action.RIGHT,
+    Action.DOWN,
+    Action.LEFT,
+    Action.UP,
+)
+
+
 @dataclass(frozen=True, slots=True)
 class Transition:
     probability: float
