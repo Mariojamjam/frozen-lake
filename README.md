@@ -4,7 +4,7 @@
 
 This research investigates whether investing more computation in an agent's *initial* decision rule pays off once that rule is refined by Monte Carlo Rollout under uncertainty. The testbed is the slippery Gymnasium [`FrozenLake-v1`](https://gymnasium.farama.org/environments/toy_text/frozen_lake/) environment, where every intended move can go wrong.
 
-> **Status:** early development. The validated environment model and a manual terminal explorer are in place. The planners (BFS, Expectimax), Rollout and the benchmark runner are **not implemented yet**.
+> **Status:** early development. The validated environment model, the BFS base policy, headless episodes and the terminal explorer are in place. Expectimax, Rollout and the benchmark runner are **not implemented yet**.
 
 ## Motivation
 
@@ -79,23 +79,33 @@ uv sync --locked
 uv run frozen-lake --help
 ```
 
+Every command, option, key and shortcut is documented in [`docs/commands.md`](docs/commands.md). The design of the study is described in [`docs/experiment-design.md`](docs/experiment-design.md).
+
 ### Explore the lake
 
 ```bash
 uv run frozen-lake tui --size 6 --map-seed 42 --episode-seed 42
 ```
 
-Choose an intended direction with the arrow keys and press **Space** to take one real step. The ice may slip the agent sideways (10% to each side), and the screen shows where the agent meant to go and where it actually landed. **R** replays the same episode seed, so the same actions reproduce the same slips; **N** starts a new seed; **?** shows help; **Q** quits. Run `uv run frozen-lake tui --help` for every option (map size, seeds, frozen-tile probability, step limit, intended-move probability).
+Choose an intended direction with the arrow keys and press **Space** to take one real step. The ice may slip the agent sideways (10% to each side), and the screen shows where the agent meant to go and where it actually landed. **R** replays the same episode seed, so the same actions reproduce the same slips; **N** tries the next episode seed (new slips on the same lake); **G** generates the next map seed (a new lake, with its own BFS policy); **?** shows help; **Q** quits. Letter keys work in either case. Run `uv run frozen-lake tui --help` for every option (map size, seeds, frozen-tile probability, step limit, intended-move probability).
 
-In this explorer, actions come from the keyboard; no planner is involved yet.
+The explorer starts in **manual** mode, where the arrow keys choose. Press **1** to let the **BFS policy** choose instead, and **M** to return to manual; switching mode restarts the episode. In both modes the status panel shows what BFS recommends from the current tile, and **P** draws the whole BFS policy on the lake as arrows: one recommended move for every tile, not a single path.
+
+### Play a headless episode
+
+```bash
+uv run frozen-lake episode --strategy BFS --size 6 --map-seed 42 --episode-seed 7
+```
+
+Prints every real step (state, action, where the agent landed, whether it slipped) and a summary with the ending (`goal`, `hole` or `timeout`) and the agent's computation time. Add `--quiet` for the summary only. BFS is the only strategy available so far.
 
 ### Planned CLI
 
-The commands below are **targets**. They currently exit with a "not implemented yet" message, except `tui`, which already runs the manual explorer and will gain `--strategy` and `--rollouts`.
+The commands below are **targets**. `validate`, `benchmark` and `plot` currently exit with a "not implemented yet" message; `tui` and `episode` already run, and will gain the remaining strategies and `--rollouts`.
 
 ```bash
 uv run frozen-lake tui --size 6 --strategy EXP-RO --rollouts 50 --seed 42
-uv run frozen-lake episode --size 4 --strategy BFS --seed 42
+uv run frozen-lake episode --size 4 --strategy EXP-RO --rollouts 50
 uv run frozen-lake validate --config configs/pilot.toml
 uv run frozen-lake benchmark --config configs/pilot.toml
 uv run frozen-lake plot --input results/<run_id>
@@ -136,14 +146,15 @@ frozen-lake/
 │   ├── models.py         # Shared types: actions, tiles, transitions, results
 │   ├── environment.py    # Maps, the real environment, transition model, sampler
 │   ├── episodes.py       # Real episodes: one environment step per decision
-│   └── tui/              # Textual explorer (app.py + app.tcss)
+│   ├── policies/         # Base policies (bfs.py)
+│   └── tui/              # Textual explorer (app.py, app.tcss, colors.py)
 ├── tests/                # pytest suite
 ├── pyproject.toml        # Project metadata, dependencies, Ruff/pytest config
 ├── uv.lock               # Locked dependency versions
 └── justfile              # Optional task aliases
 ```
 
-Modules for the planners, rollout, experiments and plots will be added as they are implemented.
+Modules for Expectimax, rollout, experiments and plots will be added as they are implemented.
 
 ## References
 
