@@ -341,7 +341,7 @@ Run `just` with no arguments to list them. Parameters are positional and have de
 |---|---|---|
 | `just setup` | `uv sync --locked` | Install locked dependencies |
 | `just clean` | Removes `.pytest_cache`, `.ruff_cache`, `__pycache__` | Leaves `.venv` untouched |
-| `just tui [size] [episode_seed] [args…]` | `frozen-lake tui --size {size} --episode-seed {episode_seed} {args}` | Defaults: size 6, episode seed 42 |
+| `just tui [size] [episode_seed] [map_seed] [args…]` | `frozen-lake tui --size {size} --episode-seed {episode_seed} --map-seed {map_seed} {args}` | Defaults: size 6, episode seed 42, map seed 42 |
 | `just episode [size] [episode_seed] [args…]` | `frozen-lake episode --size {size} --episode-seed {episode_seed} {args}` | Defaults: size 6, episode seed 7 |
 | `just test [args…]` | `pytest -q {args}` | e.g. `just test -k fallback -x` |
 | `just lint` | `ruff check .` and `ruff format --check .` | Changes nothing |
@@ -354,7 +354,7 @@ Examples:
 
 ```bash
 just tui 10                    # 10×10 lake, episode seed 42
-just tui 6 9 --map-seed 7      # 6×6, episode seed 9, map seed 7
+just tui 8 12 7                # 8×8, episode seed 12, map seed 7
 just tui 4 1 --max-steps 5     # 4×4, episode seed 1, quick timeout
 just episode 8 3 --quiet       # 8×8, episode seed 3, summary only
 ```

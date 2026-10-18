@@ -20,10 +20,10 @@ clean:
 
 # --- run -----------------------------------------------------------------------
 
-# Open the terminal explorer (e.g. `just tui 10`, `just tui 6 9 --map-seed 7`)
+# Open the terminal explorer (e.g. `just tui 10`, `just tui 8 12 7`)
 [group('run')]
-tui size="6" episode_seed="42" *args:
-    uv run frozen-lake tui --size {{size}} --episode-seed {{episode_seed}} {{args}}
+tui size="6" episode_seed="42" map_seed="42" *args:
+    uv run frozen-lake tui --size {{size}} --episode-seed {{episode_seed}} --map-seed {{map_seed}} {{args}}
 
 # Play one headless episode (e.g. `just episode 8 3`, `just episode 6 7 --quiet`)
 [group('run')]
