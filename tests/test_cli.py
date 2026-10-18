@@ -37,7 +37,21 @@ def test_tui_builds_the_explorer_from_its_options(monkeypatch):
     monkeypatch.setattr(FrozenLakeApp, "run", lambda self: launched.append(self))
     result = runner.invoke(
         app,
-        ["tui", "--size", "5", "--map-seed", "7", "--episode-seed", "3", "--depth", "4"],
+        [
+            "tui",
+            "--size",
+            "5",
+            "--map-seed",
+            "7",
+            "--episode-seed",
+            "3",
+            "--depth",
+            "4",
+            "--rollouts",
+            "11",
+            "--horizon",
+            "13",
+        ],
     )
     assert result.exit_code == 0, result.output
     (explorer,) = launched
@@ -45,6 +59,7 @@ def test_tui_builds_the_explorer_from_its_options(monkeypatch):
     assert explorer.session.max_steps == 4 * 5 * 5
     assert explorer.session.seed == 3
     assert (explorer.depth, explorer.beta, explorer.gamma) == (4, 0.9, 1.0)
+    assert (explorer.rollouts, explorer.horizon) == (11, 13)
     assert explorer.make_map is not None
     assert explorer.make_map(7) == explorer.desc  # the same options rebuild the same lake
 
@@ -95,8 +110,34 @@ def test_episode_rejects_invalid_expectimax_settings(args):
     assert runner.invoke(app, ["episode", "--strategy", "EXP", *args]).exit_code == 2
 
 
-def test_episode_rejects_unknown_and_unavailable_strategies():
-    assert runner.invoke(app, ["episode", "--strategy", "XYZ"]).exit_code == 2
-    unavailable = runner.invoke(app, ["episode", "--strategy", "BFS-RO"])
-    assert unavailable.exit_code == 2
-    assert "not implemented yet" in unavailable.output
+def test_episode_rejects_an_unknown_strategy():
+    result = runner.invoke(app, ["episode", "--strategy", "XYZ"])
+    assert result.exit_code == 2
+    assert "BFS-RO" in result.output  # the message lists the valid strategies
+
+
+@pytest.mark.parametrize("strategy", ["BFS-RO", "EXP-RO"])
+def test_episode_plays_with_rollout(strategy):
+    result = runner.invoke(
+        app, ["episode", "--strategy", strategy, "--rollouts", "5", "--horizon", "20"]
+    )
+    assert result.exit_code == 0, result.output
+    assert f"strategy {strategy}" in result.output
+    assert "rollout: 5 trajectories per action, horizon 20" in result.output
+    assert "estimates L" in result.output
+    assert "simulated transitions" in result.output
+
+
+def test_rollout_episodes_are_reproducible_and_seedable():
+    args = ["episode", "--strategy", "BFS-RO", "--rollouts", "5", "--quiet"]
+    first, second = runner.invoke(app, args), runner.invoke(app, args)
+    assert (
+        first.output.splitlines()[-1].split(" · ")[:2]
+        == second.output.splitlines()[-1].split(" · ")[:2]
+    )
+    assert runner.invoke(app, [*args, "--rollout-seed", "3"]).exit_code == 0
+
+
+@pytest.mark.parametrize("args", [["--rollouts", "0"], ["--horizon", "0"]])
+def test_episode_rejects_invalid_rollout_settings(args):
+    assert runner.invoke(app, ["episode", "--strategy", "BFS-RO", *args]).exit_code == 2

@@ -1,5 +1,5 @@
 import pytest
-from textual.widgets import Static
+from textual.widgets import DataTable, Static
 
 from frozen_lake.environment import (
     create_environment,
@@ -43,6 +43,15 @@ def app_model(app):
 
 def lake_text(app) -> str:
     return app.query_one(LakeView).render().plain
+
+
+def lake_subtitle(app) -> str:
+    return str(app.query_one("#lake-panel").border_subtitle)
+
+
+def estimate_rows(app) -> list[list[str]]:
+    table = app.query_one("#estimates", DataTable)
+    return [[str(cell) for cell in table.get_row_at(i)] for i in range(table.row_count)]
 
 
 def status(app) -> str:
@@ -181,7 +190,7 @@ async def test_p_cycles_the_policy_arrows_off_bfs_exp():
         await pilot.press("p")
         assert app.arrows is StrategyId.BFS
         assert "↓" in lake_text(app)
-        assert "Arrows         BFS" in status(app)
+        assert "arrows BFS" in lake_subtitle(app)
         await pilot.press("p")
         assert app.arrows is StrategyId.EXP
         await pilot.press("p")
@@ -206,7 +215,7 @@ async def test_exp_mode_follows_the_expectimax_policy():
 async def test_expectimax_settings_reach_the_policy():
     app = make_app(RUNNING_MAP, depth=1, beta=0.9)
     async with app.run_test(size=(100, 30)):
-        assert "depth 1" in status(app)
+        assert "depth 1" in lake_subtitle(app)
         expected = build_expectimax_policy(
             RUNNING_MAP, app_model(app), depth=1, beta=0.9, gamma=1.0
         ).policy
@@ -330,3 +339,110 @@ def test_glyphs_sit_at_the_exact_center_of_their_tile(cell):
 def test_tiles_of_even_height_get_one_extra_line_for_the_shared_edges():
     assert lake_lines(6, 3) == 18
     assert lake_lines(6, 2) == 13
+
+
+# --- rollout modes, estimates and autoplay ---------------------------------------------------
+
+
+@pytest.mark.parametrize(("key", "strategy"), [("3", StrategyId.BFS_RO), ("4", StrategyId.EXP_RO)])
+async def test_rollout_modes_follow_the_rollout_decision(key, strategy):
+    app = make_app(RUNNING_MAP, rollouts=10)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press(key)
+        assert app.strategy is strategy
+        assert f"{strategy} (Rollout over {strategy.base})" in status(app)
+        state = app.session.state
+        await pilot.press("space")
+        decision = app.last_decision
+        assert app.last_event.action is decision.action
+        assert decision.base_action is app.builds[strategy.base].policy[state]
+        assert decision.estimated_action_values is not None
+        assert decision.trajectories_evaluated == 4 * 10
+
+
+async def test_the_estimates_table_shows_each_action_with_base_and_chosen_marks():
+    app = make_app(RUNNING_MAP, rollouts=10)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("3", "space")
+        rows = estimate_rows(app)
+        assert len(rows) == 4
+        decision = app.last_decision
+        marks = {row[0].split()[1]: row[2] for row in rows}
+        assert "chosen" in marks[decision.action.name]
+        assert "base" in marks[decision.base_action.name]
+
+
+async def test_the_estimates_table_is_not_applicable_outside_rollout_modes():
+    app = make_app(RUNNING_MAP)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("1", "space")
+        assert estimate_rows(app) == [["—", "Rollout modes only (3, 4)", ""]]
+
+
+async def test_replaying_a_rollout_episode_repeats_the_same_choices():
+    app = make_app(RUNNING_MAP, rollouts=10)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("3")
+        first = []
+        for _ in range(4):
+            if app.session.finished:
+                break
+            await pilot.press("space")
+            first.append(app.last_event.action)
+        await pilot.press("r")
+        second = []
+        for _ in range(len(first)):
+            await pilot.press("space")
+            second.append(app.last_event.action)
+        assert first == second
+
+
+async def test_rollout_settings_reach_the_explorer():
+    app = make_app(RUNNING_MAP, rollouts=7, horizon=9)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("4")
+        assert "N 7 · horizon 9" in status(app)
+
+
+async def test_autoplay_runs_until_the_episode_ends_and_then_stops():
+    app = make_app(OPEN_4X4, max_steps=5)
+    app.AUTOPLAY_INTERVAL = 0.01
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("1", "a")  # no Space pressed: every step comes from the timer
+        for _ in range(100):
+            if app.session.finished:
+                break
+            await pilot.pause(0.02)
+        await pilot.pause(0.05)
+        assert app.session.finished
+        assert app.session.steps >= 1
+        assert app.autoplay_timer is None
+
+
+async def test_autoplay_can_be_paused():
+    app = make_app(OPEN_4X4, max_steps=500)
+    app.AUTOPLAY_INTERVAL = 0.01
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("1", "a")
+        await pilot.pause(0.05)
+        await pilot.press("a")
+        assert app.autoplay_timer is None
+        paused_at = app.session.steps
+        await pilot.pause(0.05)
+        assert app.session.steps == paused_at
+
+
+async def test_autoplay_needs_a_strategy():
+    app = make_app()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("a")
+        assert app.autoplay_timer is None
+
+
+async def test_switching_mode_stops_autoplay():
+    app = make_app(OPEN_4X4, max_steps=500)
+    app.AUTOPLAY_INTERVAL = 0.05
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("1", "a", "2")
+        assert app.autoplay_timer is None
+        assert app.session.steps == 0

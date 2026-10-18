@@ -56,6 +56,11 @@ class StrategyId(StrEnum):
     def uses_rollout(self) -> bool:
         return self in (StrategyId.BFS_RO, StrategyId.EXP_RO)
 
+    @property
+    def base(self) -> "StrategyId":
+        """The base policy this strategy follows or improves: BFS or EXP."""
+        return StrategyId.BFS if self in (StrategyId.BFS, StrategyId.BFS_RO) else StrategyId.EXP
+
 
 class TerminationReason(StrEnum):
     GOAL = "goal"

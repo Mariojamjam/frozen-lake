@@ -185,7 +185,7 @@ def test_a_tile_without_a_route_does_not_break_the_episode():
 def test_policy_decider_refuses_terminal_tiles():
     decide = policy_decider(build_bfs_policy(RUNNING_MAP).policy)
     with pytest.raises(ValueError, match="terminal"):
-        decide(15)
+        decide(15, 10)
 
 
 def test_on_step_sees_each_decision_and_its_outcome():

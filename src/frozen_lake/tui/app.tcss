@@ -14,6 +14,7 @@ Screen {
     border: heavy $primary;
     border-title-color: $accent;
     border-title-style: bold;
+    border-subtitle-color: $text-muted;
 }
 
 #lake {
@@ -42,9 +43,24 @@ Screen {
     background: $surface;
 }
 
-#log {
+#bottom {
     height: 8;
+}
+
+#log {
+    width: 1fr;
+    height: 100%;
+    overflow-x: hidden;
     border: round $panel-lighten-2;
     border-title-color: $text-muted;
+    background: $surface;
+}
+
+#estimates {
+    width: 46;
+    height: 100%;
+    overflow-x: hidden;
+    border: round $secondary;
+    border-title-color: $secondary;
     background: $surface;
 }
