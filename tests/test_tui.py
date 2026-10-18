@@ -1,10 +1,17 @@
 import pytest
 from textual.widgets import Static
 
-from frozen_lake.environment import generate_map, parse_map
+from frozen_lake.environment import (
+    create_environment,
+    extract_transitions,
+    generate_map,
+    parse_map,
+)
 from frozen_lake.models import Action, StrategyId, TerminationReason
 from frozen_lake.policies.bfs import build_bfs_policy
+from frozen_lake.policies.expectimax import build_expectimax_policy
 from frozen_lake.tui.app import (
+    ARROWS,
     CELL_SIZES,
     FrozenLakeApp,
     LakeView,
@@ -18,14 +25,20 @@ RUNNING_MAP = parse_map("SFFF\nFHFH\nFFFH\nHFFG")
 HOLE_TO_THE_RIGHT = parse_map("SH\nFG")
 
 
-def make_app(desc=OPEN_4X4, *, max_steps=64, success_rate=0.8, episode_seed=42):
+def make_app(desc=OPEN_4X4, *, max_steps=64, success_rate=0.8, episode_seed=42, **kwargs):
     return FrozenLakeApp(
         desc,
         map_seed=0,
         episode_seed=episode_seed,
         max_steps=max_steps,
         success_rate=success_rate,
+        **kwargs,
     )
+
+
+def app_model(app):
+    env = create_environment(app.desc, max_steps=app.max_steps, success_rate=app.success_rate)
+    return extract_transitions(env)
 
 
 def lake_text(app) -> str:
@@ -151,21 +164,53 @@ async def test_m_returns_to_manual_mode():
         assert "MANUAL" in status(app)
 
 
-async def test_status_shows_the_bfs_recommendation_in_manual_mode():
+async def test_status_shows_both_recommendations_in_manual_mode():
     app = make_app(RUNNING_MAP)
     async with app.run_test(size=(100, 30)):
-        assert "BFS recommends" in status(app)
-        assert "RIGHT" in status(app)  # from the start, ties go to RIGHT
+        recommends = next(line for line in status(app).splitlines() if "Recommends" in line)
+        assert "BFS → RIGHT" in recommends  # from the start, BFS ties go to RIGHT
+        exp_action = app.builds[StrategyId.EXP].policy[0]
+        assert f"EXP {ARROWS[exp_action]} {exp_action.name}" in recommends
 
 
-async def test_p_toggles_the_policy_arrows():
+async def test_p_cycles_the_policy_arrows_off_bfs_exp():
     app = make_app(RUNNING_MAP)
     async with app.run_test(size=(100, 30)) as pilot:
-        assert not app.show_policy
+        assert app.arrows is None
         assert "↓" not in lake_text(app)
         await pilot.press("p")
-        assert app.show_policy
+        assert app.arrows is StrategyId.BFS
         assert "↓" in lake_text(app)
+        assert "Arrows         BFS" in status(app)
+        await pilot.press("p")
+        assert app.arrows is StrategyId.EXP
+        await pilot.press("p")
+        assert app.arrows is None
+
+
+async def test_exp_mode_follows_the_expectimax_policy():
+    app = make_app(RUNNING_MAP)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("2")
+        assert app.strategy is StrategyId.EXP
+        assert "EXP policy" in status(app)
+        policy = app.builds[StrategyId.EXP].policy
+        for _ in range(5):
+            if app.session.finished:
+                break
+            state = app.session.state
+            await pilot.press("space")
+            assert app.last_event.action is policy[state]
+
+
+async def test_expectimax_settings_reach_the_policy():
+    app = make_app(RUNNING_MAP, depth=1, beta=0.9)
+    async with app.run_test(size=(100, 30)):
+        assert "depth 1" in status(app)
+        expected = build_expectimax_policy(
+            RUNNING_MAP, app_model(app), depth=1, beta=0.9, gamma=1.0
+        ).policy
+        assert app.builds[StrategyId.EXP].policy == expected
 
 
 def make_varying_app(**kwargs):
@@ -193,14 +238,14 @@ async def test_g_generates_the_next_map_and_restarts_on_it():
         assert app.session.desc == app.desc  # the real environment uses the new lake
         assert app.session.steps == 0
         assert app.session.seed == 7  # the episode seed is kept
-        assert "Map seed       43" in status(app)
+        assert "map 43" in status(app)
 
 
 async def test_the_bfs_policy_is_rebuilt_for_the_new_map():
     app = make_varying_app()
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.press("g")
-        assert app.bfs_build.policy == build_bfs_policy(app.desc).policy
+        assert app.builds[StrategyId.BFS].policy == build_bfs_policy(app.desc).policy
 
 
 async def test_new_map_keeps_the_current_mode():

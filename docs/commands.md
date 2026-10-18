@@ -24,6 +24,7 @@ Everything you can run in this project: what each command does, when to use it, 
 | Install the dependencies | `uv sync --locked` | `just setup` |
 | Explore a lake interactively | `uv run frozen-lake tui --size 6` | `just tui` |
 | Watch BFS play one episode | `uv run frozen-lake episode --size 6 --episode-seed 7` | `just episode` |
+| Watch Expectimax play one episode | `uv run frozen-lake episode --strategy EXP --size 6 --episode-seed 7` | `just episode 6 7 --strategy EXP` |
 | See only an episode's outcome | `uv run frozen-lake episode --quiet` | `just episode 4 42 --quiet` |
 | List every command and option | `uv run frozen-lake --help` | — |
 | Run the tests | `uv run pytest -q` | `just test` |
@@ -139,6 +140,13 @@ Both commands generate a lake and play episodes on it, so they share these optio
 | `--max-steps K` | `4 × size²` | Real steps allowed before the episode ends in a timeout (`K ≥ 1`) |
 | `--success-rate P` | `0.8` | Probability that a move goes in the intended direction, in `(0, 1]`. The rest splits evenly between the two perpendicular directions. `1.0` turns slipping off |
 
+**Expectimax options** configure the Expectimax policy. BFS ignores them.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--depth D` | `6` | How many agent decisions Expectimax looks ahead (`D ≥ 1`) |
+| `--beta B` | `0.9` | Leaf heuristic `B ** distance`, scoring tiles where the look-ahead ends by their BFS distance to the goal, in `(0, 1)`. A smaller value penalizes distance more |
+
 > **Two seeds, two roles.** `--map-seed` fixes the lake; `--episode-seed` fixes the luck on it. Keeping the lake and changing only the episode seed is how the same strategy is evaluated over many episodes on one map.
 
 Generated maps always place the start (`S`) top-left and the goal (`G`) bottom-right, and contain at least one hole-free path between them. That path ignores slipping, so it says nothing about how likely an agent is to arrive.
@@ -146,7 +154,7 @@ Generated maps always place the start (`S`) top-left and the goal (`G`) bottom-r
 ### 4.3 `tui`: interactive explorer
 
 ```bash
-uv run frozen-lake tui [map options] [episode options]
+uv run frozen-lake tui [map options] [episode options] [Expectimax options]
 ```
 
 **What it does.** Opens a full-screen terminal interface showing the lake, the agent, a status panel, a legend and an event log. You take one real step at a time and watch where the ice actually sends the agent.
@@ -154,6 +162,7 @@ uv run frozen-lake tui [map options] [episode options]
 **When to use it.**
 - To build intuition about slipping: intended move versus actual landing.
 - To watch the BFS policy play, and see where ignoring risk leads it into holes.
+- To watch Expectimax play, and compare where it avoids the risks BFS takes.
 - To inspect a policy over a whole lake at once (policy arrows).
 - To demonstrate the project.
 
@@ -171,23 +180,25 @@ All options from [§4.2](#42-options-shared-by-tui-and-episode). `tui` has no op
 | `Space` | Take one real step with the current decision maker |
 | `m` | Manual mode: you choose with the arrow keys |
 | `1` | BFS mode: the BFS policy chooses |
-| `p` | Show or hide the BFS policy as arrows on every tile (hidden at start) |
+| `2` | Expectimax mode: the Expectimax policy chooses |
+| `p` | Cycle the policy arrows on every tile: off (at start), BFS, Expectimax |
 | `r` | Replay: restart with the same episode seed (same actions give the same slips) |
 | `n` | New slips: restart with the next episode seed, on the same lake |
-| `g` | New map: generate the next map seed, rebuild the BFS policy, restart |
+| `g` | New map: generate the next map seed, rebuild both policies, restart |
 | `?` | Show help |
 | `q` | Quit |
 
-Letter keys work in upper or lower case. Switching mode (`m`, `1`) restarts the episode, because an episode mixing two decision makers would not be an episode of either. `g` keeps the current mode and episode seed.
+Letter keys work in upper or lower case. Switching mode (`m`, `1`, `2`) restarts the episode, because an episode mixing two decision makers would not be an episode of either. `g` keeps the current mode and episode seed.
 
 #### Reading the screen
 
-- **Lake.** Lavender checkered tiles are ice, dark tiles with `○` are holes, the teal tile with `★` is the goal, the violet tile with `S` is the start. The agent is `●`; `∘` marks the tile it just left. Where the episode ends, the agent's tile takes that ending's color: rose for a hole, teal for the goal. With `p`, ice tiles show the BFS policy as arrows.
+- **Lake.** Lavender checkered tiles are ice, dark tiles with `○` are holes, the teal tile with `★` is the goal, the violet tile with `S` is the start. The agent is `●`; `∘` marks the tile it just left. Where the episode ends, the agent's tile takes that ending's color: rose for a hole, teal for the goal. With `p`, ice tiles show a policy as arrows.
 - **Status.** From top to bottom:
   - the outcome (`running`, `GOAL reached`, `fell into a HOLE`, `TIMEOUT`);
   - who decides, and the chosen action in manual mode;
-  - what BFS recommends from the current tile, in both modes;
-  - the BFS build time and how many tiles have no route to the goal (fallbacks);
+  - what each policy recommends from the current tile (`Recommends`), in every mode;
+  - how long each policy took to build, and the Expectimax depth and beta;
+  - which policy the arrows show;
   - both seeds, the step count and limit, the current state and the total reward;
   - the last step: intended tile versus reached tile, highlighted when the agent slipped.
 - **Event log.** One line per step and per restart.
@@ -220,11 +231,12 @@ uv run frozen-lake episode [--strategy ID] [map options] [episode options] [--qu
 
 #### Options
 
-All options from [§4.2](#42-options-shared-by-tui-and-episode), plus:
+Map and episode options from [§4.2](#42-options-shared-by-tui-and-episode), plus:
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--strategy ID` | `BFS` | Which strategy decides. `BFS` follows the precomputed BFS policy |
+| `--strategy ID` | `BFS` | Which strategy decides: `BFS` or `EXP` (Expectimax), each following its precomputed policy |
+| `--depth D`, `--beta B` | `6`, `0.9` | Expectimax options, see [§4.2](#42-options-shared-by-tui-and-episode) |
 | `--quiet` | off | Print only the header and the summary, not every step |
 
 #### Reading the output
@@ -242,7 +254,7 @@ result: hole in 4 steps · reward 0 · agent compute 0.009 ms
 | Line | Meaning |
 |---|---|
 | `map …` | The lake, the strategy, the episode seed and the step limit |
-| `policy built in …` | Time to build the policy, states the search visited, tiles with no route to the goal |
+| `policy built in …` | Time to build the policy and how much work it took. For BFS: states the search visited. For Expectimax: depth and beta, subproblems computed and cache hits. Both report tiles with no route to the goal (fallbacks) |
 | `step k: state s → ACTION → reached t` | Step number, tile before the step, intended action, tile after the step. `(slipped)` means the agent did not land where the action aimed |
 | `result: …` | How the episode ended (`goal`, `hole`, `timeout`), how many real steps it took, the reward (1 only for the goal), and the total time spent deciding |
 
@@ -261,6 +273,18 @@ for s in 1 2 3 4 5; do uv run frozen-lake episode --episode-seed $s --quiet | ta
 ```
 
 The last line plays five episodes on the same lake with different luck and prints each outcome.
+
+With Expectimax:
+
+```bash
+uv run frozen-lake episode --strategy EXP                    # depth 6, beta 0.9
+uv run frozen-lake episode --strategy EXP --depth 3 --beta 0.95
+```
+
+```text
+map 4×4 (seed 42) · strategy EXP · episode seed 42 · step limit 64
+policy built in 1.506 ms (depth 6, beta 0.9: 78 subproblems, 732 cache hits, 0 fallbacks)
+```
 
 ### 4.5 Exit codes and errors
 
@@ -296,6 +320,7 @@ uv run pytest -v                                   # one line per test
 | `tests/test_models.py` | Shared types: actions, tiles, transitions, strategy IDs, results |
 | `tests/test_environment.py` | Maps, the real environment, the transition model and its parity with Gymnasium, the sampler |
 | `tests/test_bfs.py` | BFS distances, policy extraction, ties, fallbacks, counters |
+| `tests/test_expectimax.py` | Expectimax heuristic, MAX/CHANCE values, memoization, ties, fallbacks, counters |
 | `tests/test_episodes.py` | The episode engine and whole episodes played by a policy |
 | `tests/test_cli.py` | Command-line options, output and errors |
 | `tests/test_tui.py` | The terminal interface, driven by key presses without a screen |
@@ -341,7 +366,7 @@ Run `just` with no arguments to list them. Parameters are positional and have de
 |---|---|---|
 | `just setup` | `uv sync --locked` | Install locked dependencies |
 | `just clean` | Removes `.pytest_cache`, `.ruff_cache`, `__pycache__` | Leaves `.venv` untouched |
-| `just tui [size] [episode_seed] [args…]` | `frozen-lake tui --size {size} --episode-seed {episode_seed} {args}` | Defaults: size 6, episode seed 42 |
+| `just tui [size] [episode_seed] [map_seed] [args…]` | `frozen-lake tui --size {size} --episode-seed {episode_seed} --map-seed {map_seed} {args}` | Defaults: size 6, episode seed 42, map seed 42 |
 | `just episode [size] [episode_seed] [args…]` | `frozen-lake episode --size {size} --episode-seed {episode_seed} {args}` | Defaults: size 6, episode seed 7 |
 | `just test [args…]` | `pytest -q {args}` | e.g. `just test -k fallback -x` |
 | `just lint` | `ruff check .` and `ruff format --check .` | Changes nothing |
@@ -354,7 +379,7 @@ Examples:
 
 ```bash
 just tui 10                    # 10×10 lake, episode seed 42
-just tui 6 9 --map-seed 7      # 6×6, episode seed 9, map seed 7
+just tui 8 12 7                # 8×8, episode seed 12, map seed 7
 just tui 4 1 --max-steps 5     # 4×4, episode seed 1, quick timeout
 just episode 8 3 --quiet       # 8×8, episode seed 3, summary only
 ```

@@ -1,4 +1,4 @@
-"""Single-screen Textual explorer: step through real episodes by hand or with the BFS policy."""
+"""Single-screen Textual explorer: step through real episodes by hand or with a base policy."""
 
 from collections.abc import Callable
 
@@ -10,8 +10,15 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Footer, Header, RichLog, Static
 
-from frozen_lake.environment import MapDesc, map_size, tile_at, to_coordinates
-from frozen_lake.episodes import EpisodeSession, policy_decider
+from frozen_lake.environment import (
+    MapDesc,
+    create_environment,
+    extract_transitions,
+    map_size,
+    tile_at,
+    to_coordinates,
+)
+from frozen_lake.episodes import Decide, EpisodeSession, policy_decider
 from frozen_lake.models import (
     Action,
     Policy,
@@ -21,7 +28,7 @@ from frozen_lake.models import (
     TerminationReason,
     Tile,
 )
-from frozen_lake.policies.bfs import build_bfs_policy
+from frozen_lake.policies import BASE_STRATEGIES, build_base_policy
 from frozen_lake.tui.colors import (
     AMBER,
     AURORA,
@@ -51,9 +58,10 @@ END_MESSAGES = {
 ARROWS = {Action.LEFT: "←", Action.DOWN: "↓", Action.RIGHT: "→", Action.UP: "↑"}
 
 HELP = (
-    "M: manual mode, where arrows choose the intended action. 1: BFS mode, where the policy "
-    "chooses. Space takes one real step; the ice may slip the agent sideways (10% each way). "
-    "P shows the BFS policy on the lake. R replays the episode seed, N tries the next episode "
+    "M: manual mode, where arrows choose the intended action. 1: BFS mode, 2: Expectimax mode, "
+    "where that policy chooses. Space takes one real step; the ice may slip the agent sideways "
+    "(10% each way). P cycles the policy arrows on the lake: off, BFS, Expectimax. "
+    "R replays the episode seed, N tries the next episode "
     "seed (new slips, same lake), G generates the next map (new lake). Switching mode restarts "
     "the episode."
 )
@@ -232,7 +240,8 @@ class FrozenLakeApp(App):
         # Letter keys accept both cases, so Caps Lock or Shift does not silently disable them.
         Binding("m,M", "set_mode('MANUAL')", "Manual", key_display="m"),
         Binding("1", "set_mode('BFS')", "BFS"),
-        Binding("p,P", "toggle_policy", "Policy", key_display="p"),
+        Binding("2", "set_mode('EXP')", "EXP"),
+        Binding("p,P", "cycle_policy_arrows", "Arrows", key_display="p"),
         Binding("r,R", "replay", "Replay", key_display="r"),
         Binding("n,N", "new_episode", "New slips", key_display="n"),
         Binding("g,G", "new_map", "New map", key_display="g"),
@@ -241,7 +250,8 @@ class FrozenLakeApp(App):
     ]
 
     chosen_action: reactive[Action] = reactive(Action.RIGHT)
-    show_policy: reactive[bool] = reactive(False)
+    # Which base policy is drawn on the lake as arrows; None draws none.
+    arrows: reactive[StrategyId | None] = reactive(None)
 
     def __init__(
         self,
@@ -251,14 +261,21 @@ class FrozenLakeApp(App):
         episode_seed: int,
         max_steps: int,
         success_rate: float,
+        depth: int = 6,
+        beta: float = 0.9,
+        gamma: float = 1.0,
         make_map: Callable[[int], MapDesc] | None = None,
     ) -> None:
-        """`make_map(seed)` builds the map for a seed; without it the map cannot be changed."""
+        """`make_map(seed)` builds the map for a seed; without it the map cannot be changed.
+
+        `depth`, `beta` and `gamma` configure the Expectimax policy.
+        """
         super().__init__()
         self.register_theme(FROST_THEME)
         self.theme = "frost"
         self.max_steps = max_steps
         self.success_rate = success_rate
+        self.depth, self.beta, self.gamma = depth, beta, gamma
         self.make_map = make_map
         self.map_seed = map_seed
         self.episode_seed = episode_seed
@@ -303,15 +320,16 @@ class FrozenLakeApp(App):
         self.strategy = strategy
         self._restart(self.episode_seed)
 
-    def action_toggle_policy(self) -> None:
-        self.show_policy = not self.show_policy
+    def action_cycle_policy_arrows(self) -> None:
+        order = [None, *BASE_STRATEGIES]
+        self.arrows = order[(order.index(self.arrows) + 1) % len(order)]
 
     def action_step(self) -> None:
         if self.session.finished:
             self.notify("Episode finished. Press R to replay or N for a new seed.")
             return
-        if self.strategy is StrategyId.BFS:
-            action = self.bfs_decide(self.session.state).action
+        if self.strategy is not None:
+            action = self.deciders[self.strategy](self.session.state).action
         else:
             action = self.chosen_action
         event = self.session.step(action)
@@ -343,7 +361,7 @@ class FrozenLakeApp(App):
         if self.is_mounted:
             self.refresh_view()
 
-    def watch_show_policy(self) -> None:
+    def watch_arrows(self) -> None:
         if self.is_mounted:
             self.refresh_view()
 
@@ -351,7 +369,7 @@ class FrozenLakeApp(App):
 
     def refresh_view(self) -> None:
         previous = self.last_event.state if self.last_event else None
-        policy = self.bfs_build.policy if self.show_policy else None
+        policy = None if self.arrows is None else self.builds[self.arrows].policy
         self.query_one("#lake", LakeView).show(self.desc, self.session.state, previous, policy)
         self.query_one("#status", Static).update(self.status_text())
 
@@ -376,20 +394,30 @@ class FrozenLakeApp(App):
             )
         else:
             text.append(f"{self.strategy} policy\n", style=f"bold {ORCHID}")
-        recommended = self.bfs_build.policy[session.state]
-        text.append("BFS recommends ", style="bold")
-        text.append(f"{ARROWS[recommended]} {recommended.name}\n" if recommended else "—\n")
-        build = self.bfs_build
+        text.append("Recommends     ", style="bold")
         text.append(
-            f"BFS build      {build.build_time_ns / 1e6:.2f} ms · "
-            f"{build.diagnostics['fallback_states']} fallbacks\n",
+            " · ".join(
+                f"{strategy} {ARROWS[action]} {action.name}" if action else f"{strategy} —"
+                for strategy in BASE_STRATEGIES
+                for action in [self.builds[strategy].policy[session.state]]
+            )
+            + "\n"
+        )
+        text.append(
+            "Builds         "
+            + " · ".join(
+                f"{strategy} {self.builds[strategy].build_time_ns / 1e6:.2f} ms"
+                for strategy in BASE_STRATEGIES
+            )
+            + "\n",
             style=LILAC,
         )
-        text.append(f"Map seed       {self.map_seed}\n")
-        text.append(f"Episode seed   {session.seed}\n")
+        text.append(f"Expectimax     depth {self.depth} · beta {self.beta:g}\n", style=LILAC)
+        text.append(f"Arrows         {self.arrows or 'off'}\n")
+        text.append(f"Seeds          map {self.map_seed} · episode {session.seed}\n")
         text.append(f"Step           {session.steps} / {session.max_steps}\n")
         text.append(f"State          {session.state} (row {row}, col {col})\n")
-        text.append(f"Total reward   {session.total_reward:g}\n\n")
+        text.append(f"Total reward   {session.total_reward:g}\n")
 
         event = self.last_event
         if event is None:
@@ -408,16 +436,26 @@ class FrozenLakeApp(App):
     # --- helpers ------------------------------------------------------------------------------
 
     def _set_map(self, desc: MapDesc) -> None:
-        """Make `desc` the current lake: a fresh real environment and its BFS policy."""
+        """Make `desc` the current lake: a fresh real environment and its base policies."""
         self.desc = desc
         self.session = EpisodeSession(
             desc, max_steps=self.max_steps, success_rate=self.success_rate
         )
         self.session.reset(self.episode_seed)
         self.last_event = None
-        # Built once per map; every BFS decision afterwards is a table lookup.
-        self.bfs_build = build_bfs_policy(desc)
-        self.bfs_decide = policy_decider(self.bfs_build.policy)
+        # Built once per map; every decision afterwards is a table lookup.
+        model = extract_transitions(
+            create_environment(desc, max_steps=self.max_steps, success_rate=self.success_rate)
+        )
+        self.builds = {
+            strategy: build_base_policy(
+                strategy, desc, model, depth=self.depth, beta=self.beta, gamma=self.gamma
+            )
+            for strategy in BASE_STRATEGIES
+        }
+        self.deciders: dict[StrategyId, Decide] = {
+            strategy: policy_decider(build.policy) for strategy, build in self.builds.items()
+        }
 
     def _show_map_titles(self) -> None:
         n = map_size(self.desc)

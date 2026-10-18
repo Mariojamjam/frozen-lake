@@ -35,6 +35,17 @@ def main(
     """BFS vs Expectimax as base policies for Monte Carlo Rollout in stochastic FrozenLake."""
 
 
+# Discount factor of the study: rewards count fully whenever they come within the horizon.
+GAMMA = 1.0
+
+DepthOption = Annotated[
+    int, typer.Option(min=1, help="Expectimax look-ahead depth, in agent decisions.")
+]
+BetaOption = Annotated[
+    float, typer.Option(help="Expectimax leaf heuristic: beta ** BFS distance, 0 < beta < 1.")
+]
+
+
 def _not_implemented(command: str) -> None:
     typer.echo(f"`{command}` is not implemented yet.", err=True)
     raise typer.Exit(code=2)
@@ -54,8 +65,10 @@ def tui(
     success_rate: Annotated[
         float, typer.Option(help="Probability that a move goes in the intended direction.")
     ] = 0.8,
+    depth: DepthOption = 6,
+    beta: BetaOption = 0.9,
 ) -> None:
-    """Explore a slippery lake step by step, choosing each intended action by hand."""
+    """Explore a slippery lake step by step, by hand or with a base policy."""
     from frozen_lake.environment import generate_map
 
     try:
@@ -70,6 +83,9 @@ def tui(
             episode_seed=episode_seed,
             max_steps=steps,
             success_rate=success_rate,
+            depth=depth,
+            beta=beta,
+            gamma=GAMMA,
             make_map=lambda seed: generate_map(size, frozen_probability, seed=seed),
         )
     except ValueError as error:
@@ -79,9 +95,7 @@ def tui(
 
 @app.command()
 def episode(
-    strategy: Annotated[
-        str, typer.Option(help="Strategy ID; only BFS is available so far.")
-    ] = "BFS",
+    strategy: Annotated[str, typer.Option(help="Strategy ID: BFS or EXP.")] = "BFS",
     size: Annotated[int, typer.Option(min=2, help="Side length of the generated square map.")] = 4,
     map_seed: Annotated[int, typer.Option(help="Seed that generates the map layout.")] = 42,
     episode_seed: Annotated[int, typer.Option(help="Seed of the real episode's slips.")] = 42,
@@ -94,20 +108,22 @@ def episode(
     success_rate: Annotated[
         float, typer.Option(help="Probability that a move goes in the intended direction.")
     ] = 0.8,
+    depth: DepthOption = 6,
+    beta: BetaOption = 0.9,
     quiet: Annotated[bool, typer.Option("--quiet", help="Print only the summary.")] = False,
 ) -> None:
     """Play one headless episode with a strategy and print what happened."""
-    from frozen_lake.environment import generate_map
+    from frozen_lake.environment import create_environment, extract_transitions, generate_map
     from frozen_lake.episodes import EpisodeSession, policy_decider, run_episode
     from frozen_lake.models import StrategyId
-    from frozen_lake.policies.bfs import build_bfs_policy
+    from frozen_lake.policies import BASE_STRATEGIES, build_base_policy
 
     try:
         strategy_id = StrategyId(strategy)
     except ValueError as error:
         choices = ", ".join(s.value for s in StrategyId)
         raise typer.BadParameter(f"unknown strategy {strategy!r}; choose from {choices}") from error
-    if strategy_id is not StrategyId.BFS:
+    if strategy_id not in BASE_STRATEGIES:
         typer.echo(f"Strategy {strategy_id} is not implemented yet.", err=True)
         raise typer.Exit(code=2)
 
@@ -115,19 +131,26 @@ def episode(
         desc = generate_map(size, frozen_probability, seed=map_seed)
         steps = max_steps if max_steps is not None else 4 * size * size
         session = EpisodeSession(desc, max_steps=steps, success_rate=success_rate)
+        model = extract_transitions(
+            create_environment(desc, max_steps=steps, success_rate=success_rate)
+        )
+        build = build_base_policy(strategy_id, desc, model, depth=depth, beta=beta, gamma=GAMMA)
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
 
-    build = build_bfs_policy(desc)
     typer.echo(
         f"map {size}×{size} (seed {map_seed}) · strategy {strategy_id} · "
         f"episode seed {episode_seed} · step limit {steps}"
     )
-    typer.echo(
-        f"policy built in {build.build_time_ns / 1e6:.3f} ms "
-        f"({build.states_evaluated} states visited, "
-        f"{build.diagnostics['fallback_states']} fallbacks)"
-    )
+    fallbacks = build.diagnostics["fallback_states"]
+    if strategy_id is StrategyId.EXP:
+        work = (
+            f"depth {depth}, beta {beta}: {build.states_evaluated} subproblems, "
+            f"{build.diagnostics['cache_hits']} cache hits, {fallbacks} fallbacks"
+        )
+    else:
+        work = f"{build.states_evaluated} states visited, {fallbacks} fallbacks"
+    typer.echo(f"policy built in {build.build_time_ns / 1e6:.3f} ms ({work})")
 
     def print_step(_decision, event) -> None:
         slip = "" if event.moved_as_intended else "  (slipped)"

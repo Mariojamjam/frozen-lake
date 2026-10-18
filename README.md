@@ -4,7 +4,7 @@
 
 This research investigates whether investing more computation in an agent's *initial* decision rule pays off once that rule is refined by Monte Carlo Rollout under uncertainty. The testbed is the slippery Gymnasium [`FrozenLake-v1`](https://gymnasium.farama.org/environments/toy_text/frozen_lake/) environment, where every intended move can go wrong.
 
-> **Status:** early development. The validated environment model, the BFS base policy, headless episodes and the terminal explorer are in place. Expectimax, Rollout and the benchmark runner are **not implemented yet**.
+> **Status:** early development. The validated environment model, the BFS and depth-limited Expectimax base policies, headless episodes and the terminal explorer are in place.
 
 ## Motivation
 
@@ -89,7 +89,7 @@ uv run frozen-lake tui --size 6 --map-seed 42 --episode-seed 42
 
 Choose an intended direction with the arrow keys and press **Space** to take one real step. The ice may slip the agent sideways (10% to each side), and the screen shows where the agent meant to go and where it actually landed. **R** replays the same episode seed, so the same actions reproduce the same slips; **N** tries the next episode seed (new slips on the same lake); **G** generates the next map seed (a new lake, with its own BFS policy); **?** shows help; **Q** quits. Letter keys work in either case. Run `uv run frozen-lake tui --help` for every option (map size, seeds, frozen-tile probability, step limit, intended-move probability).
 
-The explorer starts in **manual** mode, where the arrow keys choose. Press **1** to let the **BFS policy** choose instead, and **M** to return to manual; switching mode restarts the episode. In both modes the status panel shows what BFS recommends from the current tile, and **P** draws the whole BFS policy on the lake as arrows: one recommended move for every tile, not a single path.
+The explorer starts in **manual** mode, where the arrow keys choose. Press **1** to let the **BFS policy** choose, **2** for the **Expectimax policy**, and **M** to return to manual; switching mode restarts the episode. In every mode the status panel shows what each policy recommends from the current tile, and **P** cycles the arrows drawn on the lake between off, the BFS policy and the Expectimax policy: one recommended move for every tile, not a single path.
 
 ### Play a headless episode
 
@@ -97,7 +97,7 @@ The explorer starts in **manual** mode, where the arrow keys choose. Press **1**
 uv run frozen-lake episode --strategy BFS --size 6 --map-seed 42 --episode-seed 7
 ```
 
-Prints every real step (state, action, where the agent landed, whether it slipped) and a summary with the ending (`goal`, `hole` or `timeout`) and the agent's computation time. Add `--quiet` for the summary only. BFS is the only strategy available so far.
+Prints every real step (state, action, where the agent landed, whether it slipped) and a summary with the ending (`goal`, `hole` or `timeout`) and the agent's computation time. Add `--quiet` for the summary only. Use `--strategy EXP` for Expectimax, with `--depth` and `--beta` to configure it.
 
 ### Planned CLI
 
