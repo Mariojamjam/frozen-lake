@@ -10,7 +10,13 @@ from frozen_lake.episodes import EpisodeSession, run_episode
 from frozen_lake.models import Action, StrategyId, TerminationReason
 from frozen_lake.policies.bfs import build_bfs_policy
 from frozen_lake.policies.expectimax import build_expectimax_policy
-from frozen_lake.rollout import rollout_decider, rollout_rng, simulate_trajectory
+from frozen_lake.rollout import (
+    exact_rollout_decider,
+    exact_values,
+    rollout_decider,
+    rollout_rng,
+    simulate_trajectory,
+)
 
 RUNNING_MAP = parse_map("SFFF\nFHFH\nFFFH\nHFFG")
 OPEN_4X4 = parse_map("SFFF\nFFFF\nFFFF\nFFFG")
@@ -261,3 +267,56 @@ def test_a_whole_rollout_episode(strategy):
 def test_the_simulation_stream_is_derived_from_the_episode_seed():
     assert rollout_rng(5).random() == rollout_rng(5).random()
     assert rollout_rng(5).random() != rollout_rng(6).random()
+
+
+# --- exact reference (N = infinity) ------------------------------------------------------------
+
+
+def test_exact_values_without_slipping_count_the_steps_to_the_goal():
+    # Without slips, BFS reaches the goal from the start in exactly 6 steps.
+    model = model_of(RUNNING_MAP, success_rate=1.0)
+    values = exact_values(model, build_bfs_policy(RUNNING_MAP).policy, horizon=10, gamma=1.0)
+    assert [values[h][0] for h in range(10)] == [0.0] * 6 + [1.0] * 4
+    assert all(values[h][15] == 0.0 for h in range(10))  # the goal itself has nothing left to give
+
+
+def test_exact_action_values_match_a_hand_computation():
+    # From 14, RIGHT enters the goal with 0.8; with one step left nothing follows the slips.
+    decide = exact_rollout_decider(build_bfs_policy(RUNNING_MAP).policy, model_of(RUNNING_MAP),
+                                   horizon=1, gamma=1.0)  # fmt: skip
+    values = decide(14, 10).estimated_action_values
+    assert values[Action.RIGHT] == pytest.approx(0.8)
+    assert values[Action.UP] == pytest.approx(0.1)  # UP slips right into the goal with 0.1
+
+
+def test_sampled_rollout_converges_to_the_exact_values():
+    policy, model = build_bfs_policy(RUNNING_MAP).policy, model_of(RUNNING_MAP)
+    exact = exact_rollout_decider(policy, model, horizon=32, gamma=1.0)(6, 64)
+    sampled = decider(policy, model, samples=4000, horizon=32, seed=3)(6, 64)
+    for action in Action:
+        assert sampled.estimated_action_values[action] == pytest.approx(
+            exact.estimated_action_values[action], abs=0.03
+        )
+
+
+def test_exact_reference_respects_the_real_steps_left():
+    decide = exact_rollout_decider(build_bfs_policy(RUNNING_MAP).policy, model_of(RUNNING_MAP),
+                                   horizon=50, gamma=1.0)  # fmt: skip
+    capped = decide(14, 1).estimated_action_values
+    assert capped[Action.RIGHT] == pytest.approx(0.8)  # one step left: only the direct entry
+
+
+def test_exact_reference_keeps_the_base_action_on_ties_and_samples_nothing():
+    isolated = parse_map("SHF\nHFH\nFHG")
+    policy = build_bfs_policy(isolated).policy
+    result = exact_rollout_decider(policy, model_of(isolated), horizon=9, gamma=1.0)(0, 36)
+    assert set(result.estimated_action_values.values()) == {0.0}
+    assert result.action is policy[0]
+    assert (result.simulated_transitions, result.trajectories_evaluated) == (0, 0)
+
+
+@pytest.mark.parametrize(("horizon", "gamma"), [(0, 1.0), (5, 0.0)])
+def test_exact_reference_rejects_invalid_settings(horizon, gamma):
+    with pytest.raises(ValueError):
+        exact_rollout_decider(build_bfs_policy(RUNNING_MAP).policy, model_of(RUNNING_MAP),
+                              horizon=horizon, gamma=gamma)  # fmt: skip
