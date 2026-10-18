@@ -9,7 +9,7 @@ from frozen_lake.environment import (
     parse_map,
 )
 from frozen_lake.models import Action
-from frozen_lake.policies.bfs import bfs_distances, build_bfs_policy
+from frozen_lake.policies.bfs import bfs_distances, build_bfs_policy, policy_from_distances
 
 # The running 4x4 map of the design doc, with its published distance grid.
 RUNNING_MAP = parse_map("SFFF\nFHFH\nFFFH\nHFFG")
@@ -97,3 +97,23 @@ def test_deterministic_move_agrees_with_the_environment_without_slipping():
         for action in Action:
             (outcome,) = model[state][action]
             assert outcome.next_state == deterministic_move(state, action, 4)
+
+
+def test_policy_from_distances_matches_the_full_build():
+    for desc in (RUNNING_MAP, parse_map("SHF\nHHF\nFFG"), parse_map("SHF\nHFH\nFHG")):
+        assert policy_from_distances(desc, bfs_distances(desc)) == build_bfs_policy(desc).policy
+
+
+def test_policy_from_distances_follows_a_hand_made_table():
+    # A fabricated table puts the start's right and down neighbors at the same distance,
+    # so the choice there is decided by the action priority alone.
+    open_map = parse_map("SF\nFG")
+    table = (2, 1, 1, 0)
+    assert policy_from_distances(open_map, table)[0] is Action.RIGHT
+    down_first = (Action.DOWN, Action.RIGHT, Action.LEFT, Action.UP)
+    assert policy_from_distances(open_map, table, down_first)[0] is Action.DOWN
+
+
+def test_policy_from_distances_rejects_a_table_of_the_wrong_size():
+    with pytest.raises(ValueError, match="expected 16"):
+        policy_from_distances(RUNNING_MAP, (0, 1, 2))

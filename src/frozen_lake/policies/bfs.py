@@ -19,6 +19,7 @@ from frozen_lake.environment import (
 from frozen_lake.models import (
     DEFAULT_ACTION_PRIORITY,
     Action,
+    Policy,
     PolicyBuildResult,
     Tile,
 )
@@ -30,32 +31,29 @@ def bfs_distances(desc: MapDesc) -> tuple[float, ...]:
     return tuple(distances)
 
 
-def build_bfs_policy(
-    desc: MapDesc, action_priority: tuple[Action, ...] = DEFAULT_ACTION_PRIORITY
-) -> PolicyBuildResult:
-    """Build the complete BFS policy table for `desc`, timing the whole build.
+def policy_from_distances(
+    desc: MapDesc,
+    distances: tuple[float, ...],
+    action_priority: tuple[Action, ...] = DEFAULT_ACTION_PRIORITY,
+) -> Policy:
+    """Turn a BFS distance table into a complete policy table. Not timed and not counted.
 
     Every nonterminal tile intends the move whose deterministic target has the smallest BFS
     distance; ties go to the first action in `action_priority`. Terminal tiles (hole, goal) get
     None. A nonterminal tile with no route to the goal gets a deterministic fallback: the first
     action in priority order whose deterministic target is not a hole (bumping into a border
-    counts as safe), or the first action overall if every move leads into a hole. Fallbacks are
-    counted in `diagnostics["fallback_states"]`.
+    counts as safe), or the first action overall if every move leads into a hole.
 
-    Counters: `states_evaluated` is the number of states the search dequeued (the goal
-    included), `successors_examined` the in-grid neighbors it checked. The policy extraction
-    only reads the finished distance table and is not counted. Diagnostics also record the peak
-    queue length.
+    Use this to reuse a distance table already computed for another purpose (e.g. the
+    Expectimax heuristic or a display). To measure what a BFS policy costs, use
+    build_bfs_policy, which always runs the search itself.
     """
-    if sorted(action_priority) != sorted(Action):
-        raise ValueError("action_priority must list every action exactly once")
-
-    start_ns = time.perf_counter_ns()
+    _check_priority(action_priority)
     n = map_size(desc)
-    distances, visited, neighbor_checks, peak_queue = _reverse_bfs(desc)
+    if len(distances) != n * n:
+        raise ValueError(f"distances has {len(distances)} entries, expected {n * n}")
 
     policy: list[Action | None] = []
-    fallback_states = 0
     for state in range(n * n):
         if tile_at(desc, state) in (Tile.HOLE, Tile.GOAL):
             policy.append(None)
@@ -68,16 +66,48 @@ def build_bfs_policy(
                 best_action, best_distance = action, distance
         if best_action is None:
             best_action = _fallback_action(desc, state, n, action_priority)
-            fallback_states += 1
         policy.append(best_action)
+    return tuple(policy)
 
+
+def build_bfs_policy(
+    desc: MapDesc, action_priority: tuple[Action, ...] = DEFAULT_ACTION_PRIORITY
+) -> PolicyBuildResult:
+    """Build the BFS policy from scratch, timing the search and the extraction together.
+
+    This is the standalone cost of the BFS strategy: it never accepts a precomputed distance
+    table, so a benchmark cannot skip the search by accident.
+
+    Counters: `states_evaluated` is the number of states the search dequeued (the goal
+    included), `successors_examined` the in-grid neighbors it checked. The extraction only
+    reads the finished distance table and is not counted. Diagnostics record the peak queue
+    length and how many tiles needed the fallback (see policy_from_distances).
+    """
+    _check_priority(action_priority)
+    start_ns = time.perf_counter_ns()
+    distances, visited, neighbor_checks, peak_queue = _reverse_bfs(desc)
+    policy = policy_from_distances(desc, tuple(distances), action_priority)
+    build_time_ns = time.perf_counter_ns() - start_ns
+
+    # A nonterminal tile needs the fallback exactly when it has no route: a reachable tile
+    # always has a neighbor one step closer to the goal.
+    fallback_states = sum(
+        1
+        for state, distance in enumerate(distances)
+        if distance == math.inf and tile_at(desc, state) not in (Tile.HOLE, Tile.GOAL)
+    )
     return PolicyBuildResult(
-        policy=tuple(policy),
-        build_time_ns=time.perf_counter_ns() - start_ns,
+        policy=policy,
+        build_time_ns=build_time_ns,
         states_evaluated=visited,
         successors_examined=neighbor_checks,
         diagnostics={"peak_queue_length": peak_queue, "fallback_states": fallback_states},
     )
+
+
+def _check_priority(action_priority: tuple[Action, ...]) -> None:
+    if sorted(action_priority) != sorted(Action):
+        raise ValueError("action_priority must list every action exactly once")
 
 
 def _fallback_action(
