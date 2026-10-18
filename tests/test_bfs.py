@@ -2,7 +2,6 @@ import math
 
 import pytest
 
-from frozen_lake.bfs import bfs_distances, build_bfs_policy
 from frozen_lake.environment import (
     create_environment,
     deterministic_move,
@@ -10,6 +9,7 @@ from frozen_lake.environment import (
     parse_map,
 )
 from frozen_lake.models import Action
+from frozen_lake.policies.bfs import bfs_distances, build_bfs_policy
 
 # The running 4x4 map of the design doc, with its published distance grid.
 RUNNING_MAP = parse_map("SFFF\nFHFH\nFFFH\nHFFG")
