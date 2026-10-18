@@ -24,13 +24,6 @@ def test_version():
     assert __version__ in result.output
 
 
-@pytest.mark.parametrize("command", ["plot"])
-def test_placeholder_commands_fail_clearly(command):
-    result = runner.invoke(app, [command])
-    assert result.exit_code == 2
-    assert "not implemented yet" in result.output
-
-
 def test_tui_builds_the_explorer_from_its_options(monkeypatch):
     from frozen_lake.tui.app import FrozenLakeApp
 

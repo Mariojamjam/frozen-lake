@@ -60,7 +60,8 @@ The primary metric is **success rate versus amortized compute time per episode**
 - One reusable, planner-agnostic Monte Carlo Rollout implementation.
 - A **Textual** terminal UI to step through episodes, compare strategies and inspect per-action estimates.
 - A headless, reproducible benchmark runner driven by TOML configs, with seeded maps.
-- Raw CSV/JSON results, Matplotlib figures and a short Markdown research report.
+- Raw CSV/JSON results, and an analysis step (`plot`) with bootstrap intervals, tables and Matplotlib figures.
+- A short Markdown research report.
 
 ## Requirements
 
@@ -148,6 +149,7 @@ frozen-lake/
 │   ├── policies/         # Base policies: bfs.py, expectimax.py, shared utils.py
 │   ├── rollout.py        # Monte Carlo Rollout over any base policy, and its exact reference
 │   ├── experiments/      # The experiment runner: config, seeds, matrix, runner, records, validation
+│   ├── analysis/         # Analysis of a finished run: bootstrap, tables, figures (the `plot` command)
 │   └── tui/              # Textual explorer (app.py, app.tcss, colors.py)
 ├── tests/                # pytest suite
 ├── pyproject.toml        # Project metadata, dependencies, Ruff/pytest config
