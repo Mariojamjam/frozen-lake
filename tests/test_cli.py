@@ -23,7 +23,7 @@ def test_version():
     assert __version__ in result.output
 
 
-@pytest.mark.parametrize("command", ["episode", "benchmark", "validate", "plot"])
+@pytest.mark.parametrize("command", ["benchmark", "validate", "plot"])
 def test_placeholder_commands_fail_clearly(command):
     result = runner.invoke(app, [command])
     assert result.exit_code == 2
@@ -58,3 +58,25 @@ def test_non_tui_commands_never_import_textual():
         "assert 'textual' not in sys.modules, 'textual was imported'"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_episode_prints_every_step_and_a_summary():
+    result = runner.invoke(app, ["episode", "--size", "6", "--episode-seed", "7"])
+    assert result.exit_code == 0, result.output
+    assert "strategy BFS" in result.output
+    assert "step   1:" in result.output
+    assert "result:" in result.output
+
+
+def test_episode_quiet_prints_only_the_summary():
+    result = runner.invoke(app, ["episode", "--quiet"])
+    assert result.exit_code == 0, result.output
+    assert "step   1:" not in result.output
+    assert "result:" in result.output
+
+
+def test_episode_rejects_unknown_and_unavailable_strategies():
+    assert runner.invoke(app, ["episode", "--strategy", "XYZ"]).exit_code == 2
+    unavailable = runner.invoke(app, ["episode", "--strategy", "EXP"])
+    assert unavailable.exit_code == 2
+    assert "not implemented yet" in unavailable.output
