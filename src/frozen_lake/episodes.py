@@ -23,9 +23,10 @@ from frozen_lake.models import (
     Tile,
 )
 
-# Chooses the real action for an observed state. Base policies and Rollout share this shape,
-# so the episode loop never needs to know which one is deciding.
-type Decide = Callable[[StateId], DecisionResult]
+# Chooses the real action for an observed state, given how many real steps the episode has left.
+# Base policies and Rollout share this shape, so the episode loop never needs to know which one
+# is deciding. Table policies ignore the remaining steps; Rollout caps its simulations by them.
+type Decide = Callable[[StateId, int], DecisionResult]
 
 
 class EpisodeFinishedError(RuntimeError):
@@ -132,7 +133,7 @@ class EpisodeSession:
 def policy_decider(policy: Policy) -> Decide:
     """Decide by looking up a precomputed policy table (the BFS and EXP strategies)."""
 
-    def decide(state: StateId) -> DecisionResult:
+    def decide(state: StateId, remaining_steps: int) -> DecisionResult:
         start_ns = time.perf_counter_ns()
         action = policy[state]
         compute_time_ns = time.perf_counter_ns() - start_ns
@@ -169,7 +170,7 @@ def run_episode(
     state = session.reset(seed)
     decisions: list[DecisionResult] = []
     while not session.finished:
-        decision = decide(state)
+        decision = decide(state, session.max_steps - session.steps)
         event = session.step(decision.action)
         decisions.append(decision)
         if on_step is not None:

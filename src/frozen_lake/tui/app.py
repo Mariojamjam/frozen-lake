@@ -329,7 +329,8 @@ class FrozenLakeApp(App):
             self.notify("Episode finished. Press R to replay or N for a new seed.")
             return
         if self.strategy is not None:
-            action = self.deciders[self.strategy](self.session.state).action
+            remaining = self.session.max_steps - self.session.steps
+            action = self.deciders[self.strategy](self.session.state, remaining).action
         else:
             action = self.chosen_action
         event = self.session.step(action)
