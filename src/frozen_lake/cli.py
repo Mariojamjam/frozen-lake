@@ -80,8 +80,10 @@ def tui(
     ] = 0.8,
     depth: DepthOption = 6,
     beta: BetaOption = 0.9,
+    rollouts: RolloutsOption = 25,
+    horizon: HorizonOption = None,
 ) -> None:
-    """Explore a slippery lake step by step, by hand or with a base policy."""
+    """Explore a slippery lake step by step, by hand or with any of the four strategies."""
     from frozen_lake.environment import generate_map
 
     try:
@@ -99,6 +101,8 @@ def tui(
             depth=depth,
             beta=beta,
             gamma=GAMMA,
+            rollouts=rollouts,
+            horizon=horizon,
             make_map=lambda seed: generate_map(size, frozen_probability, seed=seed),
         )
     except ValueError as error:

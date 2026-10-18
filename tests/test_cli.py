@@ -47,6 +47,10 @@ def test_tui_builds_the_explorer_from_its_options(monkeypatch):
             "3",
             "--depth",
             "4",
+            "--rollouts",
+            "11",
+            "--horizon",
+            "13",
         ],
     )
     assert result.exit_code == 0, result.output
@@ -55,6 +59,7 @@ def test_tui_builds_the_explorer_from_its_options(monkeypatch):
     assert explorer.session.max_steps == 4 * 5 * 5
     assert explorer.session.seed == 3
     assert (explorer.depth, explorer.beta, explorer.gamma) == (4, 0.9, 1.0)
+    assert (explorer.rollouts, explorer.horizon) == (11, 13)
     assert explorer.make_map is not None
     assert explorer.make_map(7) == explorer.desc  # the same options rebuild the same lake
 
