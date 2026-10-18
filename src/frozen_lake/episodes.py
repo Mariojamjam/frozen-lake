@@ -1,5 +1,8 @@
 """Real FrozenLake episodes: the only code that steps the real environment."""
 
+import time
+from collections.abc import Callable
+
 from frozen_lake.environment import (
     MapDesc,
     create_environment,
@@ -8,7 +11,21 @@ from frozen_lake.environment import (
     map_size,
     tile_at,
 )
-from frozen_lake.models import Action, StateId, StepEvent, TerminationReason, Tile
+from frozen_lake.models import (
+    Action,
+    DecisionResult,
+    EpisodeResult,
+    Policy,
+    StateId,
+    StepEvent,
+    StrategyId,
+    TerminationReason,
+    Tile,
+)
+
+# Chooses the real action for an observed state. Base policies and Rollout share this shape,
+# so the episode loop never needs to know which one is deciding.
+type Decide = Callable[[StateId], DecisionResult]
 
 
 class EpisodeFinishedError(RuntimeError):
@@ -110,3 +127,64 @@ class EpisodeSession:
 
     def close(self) -> None:
         self._env.close()
+
+
+def policy_decider(policy: Policy) -> Decide:
+    """Decide by looking up a precomputed policy table (the BFS and EXP strategies)."""
+
+    def decide(state: StateId) -> DecisionResult:
+        start_ns = time.perf_counter_ns()
+        action = policy[state]
+        compute_time_ns = time.perf_counter_ns() - start_ns
+        if action is None:
+            raise ValueError(f"policy has no action for state {state}, a terminal tile")
+        return DecisionResult(
+            state=state,
+            base_action=action,
+            action=action,  # without Rollout the base policy's action is the one taken
+            estimated_action_values=None,
+            compute_time_ns=compute_time_ns,
+            simulated_transitions=0,
+            trajectories_evaluated=0,
+        )
+
+    return decide
+
+
+def run_episode(
+    session: EpisodeSession,
+    decide: Decide,
+    *,
+    seed: int,
+    strategy: StrategyId,
+    on_step: Callable[[DecisionResult, StepEvent], None] | None = None,
+) -> EpisodeResult:
+    """Play one whole real episode: decide, take one real step, repeat until it ends.
+
+    `agent_compute_ns` adds up only the time spent deciding; `wall_ns` covers the whole
+    episode, environment included. `on_step`, if given, sees every decision and its outcome
+    (e.g. to print them); keep it out of anything being timed for research.
+    """
+    wall_start_ns = time.perf_counter_ns()
+    state = session.reset(seed)
+    decisions: list[DecisionResult] = []
+    while not session.finished:
+        decision = decide(state)
+        event = session.step(decision.action)
+        decisions.append(decision)
+        if on_step is not None:
+            on_step(decision, event)
+        state = event.next_state
+    wall_ns = time.perf_counter_ns() - wall_start_ns
+
+    assert session.termination is not None  # the loop only exits once the episode has ended
+    return EpisodeResult(
+        strategy=strategy,
+        termination_reason=session.termination,
+        steps=session.steps,
+        total_reward=session.total_reward,
+        agent_compute_ns=sum(d.compute_time_ns for d in decisions),
+        wall_ns=wall_ns,
+        simulated_transitions=sum(d.simulated_transitions for d in decisions),
+        decisions=tuple(decisions),
+    )

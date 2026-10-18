@@ -1,8 +1,15 @@
 import pytest
 
 from frozen_lake.environment import generate_map, parse_map
-from frozen_lake.episodes import EpisodeFinishedError, EpisodeSession, classify_end
-from frozen_lake.models import Action, TerminationReason
+from frozen_lake.episodes import (
+    EpisodeFinishedError,
+    EpisodeSession,
+    classify_end,
+    policy_decider,
+    run_episode,
+)
+from frozen_lake.models import Action, StrategyId, TerminationReason
+from frozen_lake.policies.bfs import bfs_distances, build_bfs_policy
 
 # With success_rate=1.0 every move goes exactly where intended, which makes outcomes testable.
 HOLE_TO_THE_RIGHT = parse_map("SH\nFG")
@@ -122,3 +129,71 @@ def test_slips_are_reported_as_not_moving_as_intended():
 def test_classify_end(state, terminated, truncated, expected):
     desc = parse_map("SH\nFG")
     assert classify_end(desc, state, terminated=terminated, truncated=truncated) is expected
+
+
+# --- whole episodes driven by a policy --------------------------------------------------------
+
+RUNNING_MAP = parse_map("SFFF\nFHFH\nFFFH\nHFFG")
+
+
+def play_bfs(desc, *, seed, max_steps=64, success_rate=0.8):
+    episode = EpisodeSession(desc, max_steps=max_steps, success_rate=success_rate)
+    decide = policy_decider(build_bfs_policy(desc).policy)
+    return run_episode(episode, decide, seed=seed, strategy=StrategyId.BFS)
+
+
+def test_bfs_without_slipping_reaches_the_goal_in_its_shortest_distance():
+    result = play_bfs(RUNNING_MAP, seed=0, success_rate=1.0)
+    assert result.termination_reason is TerminationReason.GOAL
+    assert result.success
+    assert result.steps == bfs_distances(RUNNING_MAP)[0] == 6
+    assert result.total_reward == 1.0
+
+
+def test_every_step_has_one_base_policy_decision():
+    result = play_bfs(generate_map(8, 0.9, seed=3), seed=5)
+    assert len(result.decisions) == result.steps
+    for decision in result.decisions:
+        assert decision.action is decision.base_action
+        assert decision.estimated_action_values is None
+        assert decision.simulated_transitions == decision.trajectories_evaluated == 0
+    assert result.agent_compute_ns == sum(d.compute_time_ns for d in result.decisions)
+    assert result.wall_ns >= result.agent_compute_ns
+
+
+def test_decisions_follow_the_policy_at_every_observed_state():
+    desc = generate_map(8, 0.9, seed=3)
+    policy = build_bfs_policy(desc).policy
+    result = play_bfs(desc, seed=11)
+    assert all(d.action is policy[d.state] for d in result.decisions)
+
+
+def test_same_seed_reproduces_the_same_policy_episode():
+    desc = generate_map(10, 0.9, seed=2026)
+    first, second = play_bfs(desc, seed=9, max_steps=400), play_bfs(desc, seed=9, max_steps=400)
+    assert [d.state for d in first.decisions] == [d.state for d in second.decisions]
+    assert first.termination_reason is second.termination_reason
+
+
+def test_a_tile_without_a_route_does_not_break_the_episode():
+    # The start is walled in; the safe fallback keeps bumping into the border until timeout.
+    result = play_bfs(parse_map("SHF\nHHF\nFFG"), seed=0, max_steps=5, success_rate=1.0)
+    assert result.termination_reason is TerminationReason.TIMEOUT
+    assert result.steps == 5
+
+
+def test_policy_decider_refuses_terminal_tiles():
+    decide = policy_decider(build_bfs_policy(RUNNING_MAP).policy)
+    with pytest.raises(ValueError, match="terminal"):
+        decide(15)
+
+
+def test_on_step_sees_each_decision_and_its_outcome():
+    seen = []
+    episode = EpisodeSession(RUNNING_MAP, max_steps=64, success_rate=1.0)
+    decide = policy_decider(build_bfs_policy(RUNNING_MAP).policy)
+    run_episode(
+        episode, decide, seed=0, strategy=StrategyId.BFS, on_step=lambda d, e: seen.append((d, e))
+    )
+    assert [event.step for _, event in seen] == [1, 2, 3, 4, 5, 6]
+    assert all(decision.action is event.action for decision, event in seen)
