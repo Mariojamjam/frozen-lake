@@ -23,6 +23,7 @@ from frozen_lake.models import (
     PolicyBuildResult,
     Tile,
 )
+from frozen_lake.policies.utils import fallback_action
 
 
 def bfs_distances(desc: MapDesc) -> tuple[float, ...]:
@@ -65,7 +66,7 @@ def policy_from_distances(
             if distance < best_distance:  # strict: earlier actions win ties
                 best_action, best_distance = action, distance
         if best_action is None:
-            best_action = _fallback_action(desc, state, n, action_priority)
+            best_action = fallback_action(desc, state, n, action_priority)
         policy.append(best_action)
     return tuple(policy)
 
@@ -108,20 +109,6 @@ def build_bfs_policy(
 def _check_priority(action_priority: tuple[Action, ...]) -> None:
     if sorted(action_priority) != sorted(Action):
         raise ValueError("action_priority must list every action exactly once")
-
-
-def _fallback_action(
-    desc: MapDesc, state: int, n: int, action_priority: tuple[Action, ...]
-) -> Action:
-    """Pick an action for a tile with no route to the goal, avoiding holes when possible.
-
-    No action can reach the goal from such a tile, so this is not a good decision, only a
-    deterministic one that does not walk into a hole on purpose.
-    """
-    for action in action_priority:
-        if tile_at(desc, deterministic_move(state, action, n)) is not Tile.HOLE:
-            return action
-    return action_priority[0]
 
 
 def _reverse_bfs(desc: MapDesc) -> tuple[list[float], int, int, int]:
