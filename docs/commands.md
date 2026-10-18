@@ -25,6 +25,7 @@ Everything you can run in this project: what each command does, when to use it, 
 | Explore a lake interactively | `uv run frozen-lake tui --size 6` | `just tui` |
 | Watch BFS play one episode | `uv run frozen-lake episode --size 6 --episode-seed 7` | `just episode` |
 | Watch Expectimax play one episode | `uv run frozen-lake episode --strategy EXP --size 6 --episode-seed 7` | `just episode 6 7 --strategy EXP` |
+| Watch Rollout over BFS play one episode | `uv run frozen-lake episode --strategy BFS-RO --size 6 --episode-seed 7` | `just episode 6 7 --strategy BFS-RO` |
 | See only an episode's outcome | `uv run frozen-lake episode --quiet` | `just episode 4 42 --quiet` |
 | List every command and option | `uv run frozen-lake --help` | — |
 | Run the tests | `uv run pytest -q` | `just test` |
@@ -147,6 +148,13 @@ Both commands generate a lake and play episodes on it, so they share these optio
 | `--depth D` | `6` | How many agent decisions Expectimax looks ahead (`D ≥ 1`) |
 | `--beta B` | `0.9` | Leaf heuristic `B ** distance`, scoring tiles where the look-ahead ends by their BFS distance to the goal, in `(0, 1)`. A smaller value penalizes distance more |
 
+**Rollout options** configure the two Rollout strategies (`BFS-RO`, `EXP-RO`). The other strategies ignore them.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--rollouts N` | `25` | Simulated trajectories per candidate action (`N ≥ 1`) |
+| `--horizon H` | `2 × size²` | Simulated steps per trajectory (`H ≥ 1`), never more than the real steps the episode has left |
+
 > **Two seeds, two roles.** `--map-seed` fixes the lake; `--episode-seed` fixes the luck on it. Keeping the lake and changing only the episode seed is how the same strategy is evaluated over many episodes on one map.
 
 Generated maps always place the start (`S`) top-left and the goal (`G`) bottom-right, and contain at least one hole-free path between them. That path ignores slipping, so it says nothing about how likely an agent is to arrive.
@@ -154,15 +162,16 @@ Generated maps always place the start (`S`) top-left and the goal (`G`) bottom-r
 ### 4.3 `tui`: interactive explorer
 
 ```bash
-uv run frozen-lake tui [map options] [episode options] [Expectimax options]
+uv run frozen-lake tui [map options] [episode options] [Expectimax options] [Rollout options]
 ```
 
-**What it does.** Opens a full-screen terminal interface showing the lake, the agent, a status panel, a legend and an event log. You take one real step at a time and watch where the ice actually sends the agent.
+**What it does.** Opens a full-screen terminal interface showing the lake, the agent, a status panel, a legend, an event log and a table of Rollout estimates. You take one real step at a time, by hand or with any of the four strategies, and watch where the ice actually sends the agent.
 
 **When to use it.**
 - To build intuition about slipping: intended move versus actual landing.
 - To watch the BFS policy play, and see where ignoring risk leads it into holes.
 - To watch Expectimax play, and compare where it avoids the risks BFS takes.
+- To watch Rollout decide: the estimate of every action, and when it overrides its base policy.
 - To inspect a policy over a whole lake at once (policy arrows).
 - To demonstrate the project.
 
@@ -170,7 +179,7 @@ It is not a measurement tool: its timings include drawing the screen. Use `episo
 
 #### Options
 
-All options from [§4.2](#42-options-shared-by-tui-and-episode). `tui` has no options of its own.
+All options from [§4.2](#42-options-shared-by-tui-and-episode). `tui` has no options of its own. In the explorer, each Rollout episode draws its simulations from a stream derived from the episode seed, so replaying an episode replays the same choices.
 
 #### Keys
 
@@ -181,6 +190,9 @@ All options from [§4.2](#42-options-shared-by-tui-and-episode). `tui` has no op
 | `m` | Manual mode: you choose with the arrow keys |
 | `1` | BFS mode: the BFS policy chooses |
 | `2` | Expectimax mode: the Expectimax policy chooses |
+| `3` | BFS-RO mode: Rollout over the BFS policy chooses |
+| `4` | EXP-RO mode: Rollout over the Expectimax policy chooses |
+| `a` | Autoplay: take a step every quarter of a second until the episode ends; press again to pause. Needs a strategy (`1`–`4`) |
 | `p` | Cycle the policy arrows on every tile: off (at start), BFS, Expectimax |
 | `r` | Replay: restart with the same episode seed (same actions give the same slips) |
 | `n` | New slips: restart with the next episode seed, on the same lake |
@@ -188,20 +200,21 @@ All options from [§4.2](#42-options-shared-by-tui-and-episode). `tui` has no op
 | `?` | Show help |
 | `q` | Quit |
 
-Letter keys work in upper or lower case. Switching mode (`m`, `1`, `2`) restarts the episode, because an episode mixing two decision makers would not be an episode of either. `g` keeps the current mode and episode seed.
+Letter keys work in upper or lower case. The footer lists the most used keys; the mode keys are listed in the legend panel. Switching mode (`m`, `1`–`4`) restarts the episode, because an episode mixing two decision makers would not be an episode of either. Restarting stops autoplay. `g` keeps the current mode and episode seed.
 
 #### Reading the screen
 
-- **Lake.** Lavender checkered tiles are ice, dark tiles with `○` are holes, the teal tile with `★` is the goal, the violet tile with `S` is the start. The agent is `●`; `∘` marks the tile it just left. Where the episode ends, the agent's tile takes that ending's color: rose for a hole, teal for the goal. With `p`, ice tiles show a policy as arrows.
+- **Lake.** Lavender checkered tiles are ice, dark tiles with `○` are holes, the teal tile with `★` is the goal, the violet tile with `S` is the start. The agent is `●`; `∘` marks the tile it just left. Where the episode ends, the agent's tile takes that ending's color: rose for a hole, teal for the goal. With `p`, ice tiles show a policy as arrows. The line under the lake shows the Expectimax depth and beta and which policy the arrows show.
 - **Status.** From top to bottom:
   - the outcome (`running`, `GOAL reached`, `fell into a HOLE`, `TIMEOUT`);
-  - who decides, and the chosen action in manual mode;
-  - what each policy recommends from the current tile (`Recommends`), in every mode;
-  - how long each policy took to build, and the Expectimax depth and beta;
-  - which policy the arrows show;
-  - both seeds, the step count and limit, the current state and the total reward;
-  - the last step: intended tile versus reached tile, highlighted when the agent slipped.
+  - who decides: the chosen action in manual mode, or `N` and the horizon in Rollout modes;
+  - what each base policy recommends from the current tile (`Recommends`), in every mode;
+  - how long each policy took to build;
+  - both seeds, the step count and limit, and the current state;
+  - the last decision's computation time and, in Rollout modes, how many transitions it simulated;
+  - the last step: intended tile versus reached tile, highlighted when the agent slipped, and `(overrode …)` when Rollout chose a different action from its base policy.
 - **Event log.** One line per step and per restart.
+- **Rollout estimates.** After each step in a Rollout mode: every action's estimate (the fraction of its simulated trajectories that reached the goal), a bar for its size, and which action was the base policy's (`base`) and which was taken (`chosen`). These are sampled estimates, not exact probabilities. Outside Rollout modes the table says it does not apply.
 
 The lake is drawn with the largest tiles that fit the window and is redrawn whenever the window is resized, so it stays whole and aligned at any size. Tiles range from 11×5 characters down to a single character.
 
@@ -214,12 +227,14 @@ uv run frozen-lake tui --size 10 --map-seed 7           # a different 10×10 lak
 uv run frozen-lake tui --size 4 --max-steps 5           # reach a TIMEOUT quickly
 uv run frozen-lake tui --success-rate 1.0               # no slipping: moves always go as intended
 uv run frozen-lake tui --frozen-probability 0.75        # denser holes
+uv run frozen-lake tui --size 6 --rollouts 100          # steadier Rollout estimates, press 3 or 4
 ```
 
 ### 4.4 `episode`: one headless episode
 
 ```bash
-uv run frozen-lake episode [--strategy ID] [map options] [episode options] [--quiet]
+uv run frozen-lake episode [--strategy ID] [map options] [episode options]
+                           [Expectimax options] [Rollout options] [--quiet]
 ```
 
 **What it does.** Builds the strategy's policy, plays one whole real episode without any interface, and prints every step followed by a summary.
@@ -235,15 +250,26 @@ Map and episode options from [§4.2](#42-options-shared-by-tui-and-episode), plu
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--strategy ID` | `BFS` | Which strategy decides: `BFS` or `EXP` (Expectimax), each following its precomputed policy |
-| `--depth D`, `--beta B` | `6`, `0.9` | Expectimax options, see [§4.2](#42-options-shared-by-tui-and-episode) |
+| `--strategy ID` | `BFS` | Which strategy decides (see below) |
+| `--depth D`, `--beta B` | `6`, `0.9` | Expectimax options, see [§4.2](#42-options-shared-by-tui-and-episode); used by `EXP` and `EXP-RO` |
+| `--rollouts N`, `--horizon H` | `25`, `2 × size²` | Rollout options, see [§4.2](#42-options-shared-by-tui-and-episode) |
+| `--rollout-seed S` | derived from `--episode-seed` | Rollout strategies: seed of the simulations, kept separate from the real slips |
 | `--quiet` | off | Print only the header and the summary, not every step |
+
+| Strategy | How each real action is chosen |
+|---|---|
+| `BFS` | Look up the BFS policy |
+| `EXP` | Look up the Expectimax policy |
+| `BFS-RO` | Monte Carlo Rollout over the BFS policy: for each of the 4 actions, simulate `N` trajectories that take the action and then follow BFS; take the action with the best average |
+| `EXP-RO` | The same Rollout over the Expectimax policy |
+
+The two Rollout strategies run the same code; only the policy followed inside the simulations differs. When estimates tie, Rollout keeps the base policy's action.
 
 #### Reading the output
 
 ```text
 map 4×4 (seed 42) · strategy BFS · episode seed 42 · step limit 64
-policy built in 0.313 ms (14 states visited, 0 fallbacks)
+BFS policy built in 0.313 ms (14 states visited, 0 fallbacks)
 step   1: state   0 → RIGHT → reached   1
 step   2: state   1 → RIGHT → reached   2
 step   3: state   2 → DOWN  → reached   6
@@ -254,7 +280,7 @@ result: hole in 4 steps · reward 0 · agent compute 0.009 ms
 | Line | Meaning |
 |---|---|
 | `map …` | The lake, the strategy, the episode seed and the step limit |
-| `policy built in …` | Time to build the policy and how much work it took. For BFS: states the search visited. For Expectimax: depth and beta, subproblems computed and cache hits. Both report tiles with no route to the goal (fallbacks) |
+| `… policy built in …` | Which base policy was built, the time it took and how much work it took. For BFS: states the search visited. For Expectimax: depth and beta, subproblems computed and cache hits. Both report tiles with no route to the goal (fallbacks) |
 | `step k: state s → ACTION → reached t` | Step number, tile before the step, intended action, tile after the step. `(slipped)` means the agent did not land where the action aimed |
 | `result: …` | How the episode ended (`goal`, `hole`, `timeout`), how many real steps it took, the reward (1 only for the goal), and the total time spent deciding |
 
@@ -283,8 +309,31 @@ uv run frozen-lake episode --strategy EXP --depth 3 --beta 0.95
 
 ```text
 map 4×4 (seed 42) · strategy EXP · episode seed 42 · step limit 64
-policy built in 1.506 ms (depth 6, beta 0.9: 78 subproblems, 732 cache hits, 0 fallbacks)
+EXP policy built in 1.506 ms (depth 6, beta 0.9: 78 subproblems, 732 cache hits, 0 fallbacks)
 ```
+
+With Rollout:
+
+```bash
+uv run frozen-lake episode --strategy BFS-RO                 # 25 trajectories per action
+uv run frozen-lake episode --strategy EXP-RO --rollouts 50 --horizon 32
+```
+
+```bash
+uv run frozen-lake episode --strategy BFS-RO --rollouts 10 --horizon 32
+```
+
+```text
+map 4×4 (seed 42) · strategy BFS-RO · episode seed 42 · step limit 64
+BFS policy built in 0.163 ms (14 states visited, 0 fallbacks)
+rollout: 10 trajectories per action, horizon 32 (capped by the real steps left)
+step   1: state   0 → RIGHT → reached   1
+           estimates L 0.50 D 0.30 R 0.70 U 0.70
+...
+result: hole in 17 steps · reward 0 · agent compute 1.524 ms · 3622 simulated transitions
+```
+
+Under each step, `estimates` lists the average return of each candidate action (`L`eft, `D`own, `R`ight, `U`p) over its simulated trajectories: the fraction that reached the goal within the horizon. These are sampled estimates, not exact probabilities. `overrode BFS RIGHT` appears when Rollout chose a different action from the base policy. The summary adds how many transitions were simulated in the whole episode; decision time grows with `--rollouts` and `--horizon`.
 
 ### 4.5 Exit codes and errors
 
@@ -321,6 +370,7 @@ uv run pytest -v                                   # one line per test
 | `tests/test_environment.py` | Maps, the real environment, the transition model and its parity with Gymnasium, the sampler |
 | `tests/test_bfs.py` | BFS distances, policy extraction, ties, fallbacks, counters |
 | `tests/test_expectimax.py` | Expectimax heuristic, MAX/CHANCE values, memoization, ties, fallbacks, counters |
+| `tests/test_rollout.py` | Simulated trajectories, Rollout decisions, ties, horizon limits, reproducibility, isolation from the real environment |
 | `tests/test_episodes.py` | The episode engine and whole episodes played by a policy |
 | `tests/test_cli.py` | Command-line options, output and errors |
 | `tests/test_tui.py` | The terminal interface, driven by key presses without a screen |
