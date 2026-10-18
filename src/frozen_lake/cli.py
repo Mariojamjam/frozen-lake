@@ -70,6 +70,7 @@ def tui(
             episode_seed=episode_seed,
             max_steps=steps,
             success_rate=success_rate,
+            make_map=lambda seed: generate_map(size, frozen_probability, seed=seed),
         )
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error

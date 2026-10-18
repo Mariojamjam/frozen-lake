@@ -1,30 +1,50 @@
 Screen {
     layout: vertical;
+    background: $background;
 }
 
 #main {
-    height: auto;
-    min-height: 12;
+    height: 1fr;
+    min-height: 14;
+}
+
+#lake-panel {
+    width: 1fr;
+    height: 100%;
+    border: heavy $primary;
+    border-title-color: $accent;
+    border-title-style: bold;
 }
 
 #lake {
-    width: auto;
-    min-width: 30;
-    height: auto;
-    padding: 1 2;
-    border: round $primary;
+    width: 1fr;
+    height: 1fr;
+}
+
+#side {
+    width: 46;
+    height: 100%;
 }
 
 #status {
-    width: 1fr;
-    min-width: 40;
-    height: auto;
-    padding: 1 2;
+    height: 1fr;
+    padding: 0 2;
     border: round $secondary;
+    border-title-color: $secondary;
+    background: $surface;
+}
+
+#legend {
+    height: auto;
+    padding: 0 1;
+    border: round $panel-lighten-2;
+    border-title-color: $text-muted;
+    background: $surface;
 }
 
 #log {
-    height: 1fr;
-    min-height: 5;
-    border: round $secondary;
+    height: 8;
+    border: round $panel-lighten-2;
+    border-title-color: $text-muted;
+    background: $surface;
 }
