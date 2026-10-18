@@ -13,9 +13,6 @@ PROBABILITY_TOLERANCE = 1e-9
 # Rows of tile letters, top to bottom, e.g. ("SFFF", "FHFH", "FFFH", "HFFG").
 type MapDesc = tuple[str, ...]
 
-# (row, col) displacement of each intended move.
-MOVES = {Action.LEFT: (0, -1), Action.DOWN: (1, 0), Action.RIGHT: (0, 1), Action.UP: (-1, 0)}
-
 
 def validate_map(rows: list[str] | tuple[str, ...]) -> MapDesc:
     """Return `rows` as a canonical MapDesc, or raise ValueError if it is not a valid map."""
@@ -186,11 +183,3 @@ def find_tile(desc: MapDesc, tile: Tile) -> StateId:
     if index < 0:
         raise ValueError(f"map has no '{tile}' tile")
     return to_state(*divmod(index, n), n)
-
-
-def deterministic_destination(desc: MapDesc, state: StateId, action: Action) -> StateId:
-    """Return where `action` leads from `state` without slipping; borders keep the agent put."""
-    n = map_size(desc)
-    row, col = to_coordinates(state, n)
-    d_row, d_col = MOVES[action]
-    return to_state(min(max(row + d_row, 0), n - 1), min(max(col + d_col, 0), n - 1), n)

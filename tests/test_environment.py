@@ -7,7 +7,7 @@ from gymnasium.envs.toy_text.utils import categorical_sample
 
 from frozen_lake.environment import (
     create_environment,
-    deterministic_destination,
+    deterministic_move,
     extract_transitions,
     find_tile,
     generate_map,
@@ -156,18 +156,18 @@ def test_tile_lookup():
         (15, Action.DOWN, 15),
     ],
 )
-def test_deterministic_destination_moves_one_tile_or_stays_at_borders(state, action, expected):
-    assert deterministic_destination(LAKE_4X4, state, action) == expected
+def test_deterministic_move_goes_one_tile_or_stays_at_borders(state, action, expected):
+    assert deterministic_move(state, action, 4) == expected
 
 
-def test_deterministic_destination_is_the_intended_outcome_of_the_model():
+def test_deterministic_move_is_the_intended_outcome_of_the_slippery_model():
     model = extract_transitions(make_env(LAKE_10X10))
     for state in range(len(model)):
         if tile_at(LAKE_10X10, state) in (Tile.HOLE, Tile.GOAL):
             continue
         for action in Action:
             intended = max(model[state][action], key=lambda t: t.probability)
-            assert deterministic_destination(LAKE_10X10, state, action) == intended.next_state
+            assert deterministic_move(state, action, 10) == intended.next_state
 
 
 # --- real environment -------------------------------------------------------------------------

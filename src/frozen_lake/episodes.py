@@ -3,8 +3,9 @@
 from frozen_lake.environment import (
     MapDesc,
     create_environment,
-    deterministic_destination,
+    deterministic_move,
     find_tile,
+    map_size,
     tile_at,
 )
 from frozen_lake.models import Action, StateId, StepEvent, TerminationReason, Tile
@@ -63,7 +64,7 @@ class EpisodeSession:
             raise EpisodeFinishedError(f"episode already ended: {self._termination}")
 
         state = self._state
-        intended_state = deterministic_destination(self.desc, state, action)
+        intended_state = deterministic_move(state, action, map_size(self.desc))
         next_state, reward, terminated, truncated, _ = self._env.step(action)
         next_state = int(next_state)
 
