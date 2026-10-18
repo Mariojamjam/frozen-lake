@@ -2,7 +2,6 @@ import math
 
 import pytest
 
-from frozen_lake.bfs import bfs_distances, build_bfs_policy
 from frozen_lake.environment import (
     create_environment,
     deterministic_move,
@@ -10,6 +9,7 @@ from frozen_lake.environment import (
     parse_map,
 )
 from frozen_lake.models import Action
+from frozen_lake.policies.bfs import bfs_distances, build_bfs_policy, policy_from_distances
 
 # The running 4x4 map of the design doc, with its published distance grid.
 RUNNING_MAP = parse_map("SFFF\nFHFH\nFFFH\nHFFG")
@@ -50,13 +50,25 @@ def test_action_priority_must_list_every_action_once():
         build_bfs_policy(RUNNING_MAP, action_priority=(Action.RIGHT,))
 
 
-def test_tile_without_a_route_gets_the_fallback_action_and_is_counted():
+def test_tile_without_a_route_gets_a_safe_fallback_and_is_counted():
     cut_off = parse_map("SHF\nHHF\nFFG")  # the start is walled in by holes
     result = build_bfs_policy(cut_off)
     assert bfs_distances(cut_off)[0] == INF
-    assert result.policy[0] is Action.RIGHT  # first action in the default priority
+    # RIGHT and DOWN lead into holes; LEFT bumps into the border and keeps the agent alive.
+    assert result.policy[0] is Action.LEFT
     assert result.diagnostics["fallback_states"] == 1
     assert build_bfs_policy(RUNNING_MAP).diagnostics["fallback_states"] == 0
+
+
+def test_fallback_uses_the_first_action_when_every_move_leads_into_a_hole():
+    # Holes at 1, 3, 5 and 7 isolate every tile, so none of 0, 2, 4, 6 has a route to the goal.
+    isolated = parse_map("SHF\nHFH\nFHG")
+    result = build_bfs_policy(isolated)
+    assert result.policy[4] is Action.RIGHT  # center: all four moves lead into holes
+    assert result.policy[0] is Action.LEFT  # corners prefer a safe border bump
+    assert result.policy[2] is Action.RIGHT
+    assert result.policy[6] is Action.DOWN
+    assert result.diagnostics["fallback_states"] == 4
 
 
 def test_counters_on_a_tiny_map():
@@ -85,3 +97,23 @@ def test_deterministic_move_agrees_with_the_environment_without_slipping():
         for action in Action:
             (outcome,) = model[state][action]
             assert outcome.next_state == deterministic_move(state, action, 4)
+
+
+def test_policy_from_distances_matches_the_full_build():
+    for desc in (RUNNING_MAP, parse_map("SHF\nHHF\nFFG"), parse_map("SHF\nHFH\nFHG")):
+        assert policy_from_distances(desc, bfs_distances(desc)) == build_bfs_policy(desc).policy
+
+
+def test_policy_from_distances_follows_a_hand_made_table():
+    # A fabricated table puts the start's right and down neighbors at the same distance,
+    # so the choice there is decided by the action priority alone.
+    open_map = parse_map("SF\nFG")
+    table = (2, 1, 1, 0)
+    assert policy_from_distances(open_map, table)[0] is Action.RIGHT
+    down_first = (Action.DOWN, Action.RIGHT, Action.LEFT, Action.UP)
+    assert policy_from_distances(open_map, table, down_first)[0] is Action.DOWN
+
+
+def test_policy_from_distances_rejects_a_table_of_the_wrong_size():
+    with pytest.raises(ValueError, match="expected 16"):
+        policy_from_distances(RUNNING_MAP, (0, 1, 2))

@@ -22,7 +22,7 @@ class Action(IntEnum):
 
 
 # Fixed order used to break ties between equally good actions, for BFS and for Rollout.
-# Proposed in the design doc; still Open until frozen with the BFS implementation.
+# Frozen study setting: changing it changes which actions the policies choose.
 DEFAULT_ACTION_PRIORITY: tuple[Action, ...] = (
     Action.RIGHT,
     Action.DOWN,
@@ -56,11 +56,35 @@ class StrategyId(StrEnum):
     def uses_rollout(self) -> bool:
         return self in (StrategyId.BFS_RO, StrategyId.EXP_RO)
 
+    @property
+    def base(self) -> "StrategyId":
+        """The base policy this strategy follows or improves: BFS or EXP."""
+        return StrategyId.BFS if self in (StrategyId.BFS, StrategyId.BFS_RO) else StrategyId.EXP
+
 
 class TerminationReason(StrEnum):
     GOAL = "goal"
     HOLE = "hole"
     TIMEOUT = "timeout"
+
+
+@dataclass(frozen=True, slots=True)
+class StepEvent:
+    """What happened in one real environment step."""
+
+    step: int  # number of real steps taken so far, including this one
+    state: StateId
+    action: Action
+    # Where the action would have led without slipping. At a border a slip can land on the
+    # same tile, so equal states do not prove that no slip happened.
+    intended_state: StateId
+    next_state: StateId
+    reward: float
+    termination: TerminationReason | None  # None while the episode continues
+
+    @property
+    def moved_as_intended(self) -> bool:
+        return self.next_state == self.intended_state
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,7 +4,7 @@
 
 This research investigates whether investing more computation in an agent's *initial* decision rule pays off once that rule is refined by Monte Carlo Rollout under uncertainty. The testbed is the slippery Gymnasium [`FrozenLake-v1`](https://gymnasium.farama.org/environments/toy_text/frozen_lake/) environment, where every intended move can go wrong.
 
-> **Status:** early development. The project shell and tooling are in place; the algorithms, the Textual UI and the benchmark runner are **not implemented yet**, and the CLI subcommands are placeholders.
+> **Status:** early development. The validated environment model, the BFS and depth-limited Expectimax base policies, Monte Carlo Rollout over either of them, headless episodes, the terminal explorer and the experiment runner are in place.
 
 ## Motivation
 
@@ -79,17 +79,35 @@ uv sync --locked
 uv run frozen-lake --help
 ```
 
-### Planned CLI
+Every command, option, key and shortcut is documented in [`docs/commands.md`](docs/commands.md). The design of the study is described in [`docs/experiment-design.md`](docs/experiment-design.md).
 
-The commands below are **targets**. They currently exit with a "not implemented yet" message.
+### Explore the lake
 
 ```bash
-uv run frozen-lake tui --size 6 --strategy EXP-RO --rollouts 50 --seed 42
-uv run frozen-lake episode --size 4 --strategy BFS --seed 42
-uv run frozen-lake validate --config configs/pilot.toml
-uv run frozen-lake benchmark --config configs/pilot.toml
-uv run frozen-lake plot --input results/<run_id>
+uv run frozen-lake tui --size 6 --map-seed 42 --episode-seed 42
 ```
+
+Choose an intended direction with the arrow keys and press **Space** to take one real step. The ice may slip the agent sideways (10% to each side), and the screen shows where the agent meant to go and where it actually landed. **R** replays the same episode seed, so the same actions reproduce the same slips; **N** tries the next episode seed (new slips on the same lake); **G** generates the next map seed (a new lake, with its own BFS policy); **?** shows help; **Q** quits. Letter keys work in either case. Run `uv run frozen-lake tui --help` for every option (map size, seeds, frozen-tile probability, step limit, intended-move probability).
+
+The explorer starts in **manual** mode, where the arrow keys choose. Press **1** for the **BFS policy**, **2** for the **Expectimax policy**, **3** for **Rollout over BFS** and **4** for **Rollout over Expectimax**, and **M** to return to manual; switching mode restarts the episode. **A** plays the episode automatically. In every mode the status panel shows what each base policy recommends from the current tile; in Rollout modes a table shows every action's estimate and whether Rollout overrode its base policy. **P** cycles the arrows drawn on the lake between off, the BFS policy and the Expectimax policy: one recommended move for every tile, not a single path.
+
+### Play a headless episode
+
+```bash
+uv run frozen-lake episode --strategy BFS --size 6 --map-seed 42 --episode-seed 7
+```
+
+Prints every real step (state, action, where the agent landed, whether it slipped) and a summary with the ending (`goal`, `hole` or `timeout`) and the agent's computation time. Add `--quiet` for the summary only. Use `--strategy EXP` for Expectimax (configured by `--depth` and `--beta`), and `--strategy BFS-RO` or `EXP-RO` for Monte Carlo Rollout over either policy (configured by `--rollouts` and `--horizon`).
+
+### Run the experiment
+
+```bash
+uv run frozen-lake validate --config configs/experiment.toml             # check the configuration
+uv run frozen-lake benchmark --config configs/experiment.toml --dry-run  # describe the run
+uv run frozen-lake benchmark --config configs/experiment.toml            # run it
+```
+
+`configs/experiment.toml` describes the whole experiment: lake sizes, maps, episodes, Rollout sample counts and the Expectimax settings. `benchmark` generates every map, builds and times each base policy, plays every strategy on the same maps and episode seeds, and writes raw CSV results, a summary and the run's metadata to a new folder under `results/`, then checks them for completeness.
 
 ## Development
 
@@ -120,16 +138,22 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and on 
 frozen-lake/
 ├── .devcontainer/        # Dev Container (Dockerfile + devcontainer.json)
 ├── .github/workflows/    # CI
+├── configs/              # The experiment configuration (experiment.toml)
 ├── docs/                 # Supplementary documentation
 ├── src/frozen_lake/      # Python package (import name: frozen_lake)
-│   └── cli.py            # Typer entry point for the `frozen-lake` command
+│   ├── cli.py            # Typer entry point for the `frozen-lake` command
+│   ├── models.py         # Shared types: actions, tiles, transitions, results
+│   ├── environment.py    # Maps, the real environment, transition model, sampler
+│   ├── episodes.py       # Real episodes: one environment step per decision
+│   ├── policies/         # Base policies: bfs.py, expectimax.py, shared utils.py
+│   ├── rollout.py        # Monte Carlo Rollout over any base policy, and its exact reference
+│   ├── experiments/      # The experiment runner: config, seeds, matrix, runner, records, validation
+│   └── tui/              # Textual explorer (app.py, app.tcss, colors.py)
 ├── tests/                # pytest suite
 ├── pyproject.toml        # Project metadata, dependencies, Ruff/pytest config
 ├── uv.lock               # Locked dependency versions
 └── justfile              # Optional task aliases
 ```
-
-Modules for the environment model, the planners, rollout, episodes, experiments, plots and the TUI will be added as they are implemented.
 
 ## References
 

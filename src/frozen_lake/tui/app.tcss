@@ -1,0 +1,66 @@
+Screen {
+    layout: vertical;
+    background: $background;
+}
+
+#main {
+    height: 1fr;
+    min-height: 14;
+}
+
+#lake-panel {
+    width: 1fr;
+    height: 100%;
+    border: heavy $primary;
+    border-title-color: $accent;
+    border-title-style: bold;
+    border-subtitle-color: $text-muted;
+}
+
+#lake {
+    width: 1fr;
+    height: 1fr;
+}
+
+#side {
+    width: 46;
+    height: 100%;
+}
+
+#status {
+    height: 1fr;
+    padding: 0 2;
+    border: round $secondary;
+    border-title-color: $secondary;
+    background: $surface;
+}
+
+#legend {
+    height: auto;
+    padding: 0 1;
+    border: round $panel-lighten-2;
+    border-title-color: $text-muted;
+    background: $surface;
+}
+
+#bottom {
+    height: 8;
+}
+
+#log {
+    width: 1fr;
+    height: 100%;
+    overflow-x: hidden;
+    border: round $panel-lighten-2;
+    border-title-color: $text-muted;
+    background: $surface;
+}
+
+#estimates {
+    width: 46;
+    height: 100%;
+    overflow-x: hidden;
+    border: round $secondary;
+    border-title-color: $secondary;
+    background: $surface;
+}

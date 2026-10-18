@@ -1,0 +1,27 @@
+# The experiment, fixed before running. Changing any value after seeing results makes a new
+# protocol version: run it as a new experiment and keep the previous results.
+
+[environment]
+sizes = [4, 6, 8, 10, 12]        # square lakes, n × n
+frozen_probability = 0.9         # chance that a generated tile is ice rather than a hole
+success_rate = 0.8               # chance that a move goes in the intended direction
+max_steps_multiplier = 4         # real-step limit per episode = 4 × n²
+
+[policies]
+expectimax_depth = 6             # agent decisions Expectimax looks ahead
+heuristic_beta = 0.9             # leaf heuristic beta ** BFS distance
+discount_factor = 1.0
+build_repeats = 30               # timed builds of each base policy per map
+build_warmup = 1                 # untimed builds before them
+
+[rollout]
+samples_per_action = [10, 25, 50, 100, 200, 400, 800]   # N: trajectories per candidate action
+horizon_multiplier = 2           # simulated steps per trajectory = 2 × n², capped by steps left
+exact_reference = true           # also play Rollout with exact values (N = infinity)
+
+[experiment]
+maps_per_size = 5
+episodes_per_map = 30
+master_seed = 2026               # every map, episode and simulation seed derives from it
+output_dir = "results"
+write_decisions = true           # one row per real decision in decision_metrics.csv

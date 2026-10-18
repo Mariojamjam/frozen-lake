@@ -1,0 +1,26 @@
+# A minimal experiment for the test suite: runs in seconds.
+
+[environment]
+sizes = [3, 4]
+frozen_probability = 0.9
+success_rate = 0.8
+max_steps_multiplier = 4
+
+[policies]
+expectimax_depth = 3
+heuristic_beta = 0.9
+discount_factor = 1.0
+build_repeats = 3
+build_warmup = 1
+
+[rollout]
+samples_per_action = [2, 4]
+horizon_multiplier = 2
+exact_reference = true
+
+[experiment]
+maps_per_size = 2
+episodes_per_map = 2
+master_seed = 7
+output_dir = "results"
+write_decisions = true
