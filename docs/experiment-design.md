@@ -295,7 +295,7 @@ $$
 \pi_{\text{BFS}}(s) \in \arg\min_{a} \; d_{\text{BFS}}\big(T_{\text{det}}(s, a), G\big),
 $$
 
-where $T_{\text{det}}(s, a)$ is the tile the move would reach without slipping. Moves into holes and moves that bump into a border are never preferred over a shorter route. Ties are broken by a fixed action priority, proposed as RIGHT, DOWN, LEFT, UP (**Open**: to be frozen with the BFS implementation). A nonterminal state with no route to the goal receives a deterministic fallback action, and how often the fallback is used is recorded.
+where $T_{\text{det}}(s, a)$ is the tile the move would reach without slipping. Moves into holes and moves that bump into a border are never preferred over a shorter route. Ties are broken by the fixed action priority RIGHT, DOWN, LEFT, UP (**Fixed**). A nonterminal state with no route to the goal receives a deterministic fallback: the first action in that priority whose target is not a hole (bumping into a border counts as safe), or the first action if every move leads into a hole. The fallback is not a good decision, since no action reaches the goal from such a state; it only avoids walking into a hole on purpose. How often it is used is recorded.
 
 **Example (computed).** Reverse BFS distances on the running 4×4 map:
 
@@ -471,7 +471,7 @@ When the real episode has fewer steps left than $H$, simulations respect what re
 With sparse rewards, several actions often have the same estimate. A common case is all zeros, when no trajectory reached the goal. Picking the first action in enumeration order would add an arbitrary bias. The rule is (**Fixed**):
 1. find the maximal estimate;
 2. if the base policy's action is among the maximizers, choose it;
-3. otherwise choose the first maximizer in the fixed action priority (**Open**: priority order and numerical tolerance for "equal").
+3. otherwise choose the first maximizer in the fixed action priority RIGHT, DOWN, LEFT, UP (**Open**: numerical tolerance for "equal").
 
 This makes Rollout fall back to its base policy when simulations carry no information.
 
@@ -793,7 +793,7 @@ Before the main study, record:
 - step limit and rollout horizon conventions;
 - frozen-tile probability;
 - seed scheme and version;
-- tie-breaking priority and tolerance;
+- tie-breaking tolerance;
 - the measurement machine and software environment.
 
 Candidates for the main study are at least 5 maps per size, at least 30 episodes per map and strategy, and $N \in \{10, 25, 50, 100\}$ if feasible.
@@ -867,13 +867,13 @@ It cannot establish that any strategy is universally better. It also cannot esta
 | Strategies | `BFS`, `EXP`, `BFS-RO`, `EXP-RO` | Fixed |
 | Base policies | Precomputed tables for all nonterminal states; $O(1)$ lookup | Fixed |
 | BFS | Reverse BFS from the goal; shortest-distance action | Fixed |
-| BFS tie order and fallback | RIGHT, DOWN, LEFT, UP proposed | Open |
+| Action priority for ties and fallback | RIGHT, DOWN, LEFT, UP; fallback prefers a non-hole target | Fixed |
 | Expectimax | MAX/CHANCE recursion memoized by $(s, d)$; terminal outcomes have no continuation value | Fixed |
 | Expectimax depth $D$ | 6 | Pilot candidate |
 | Leaf heuristic | $h_\beta(s) = \beta^{d_{\text{BFS}}(s, G)}$, zero for terminal or unreachable states | Fixed (family) |
 | $\beta$ | 0.90; sensitivity 0.85 and 0.95 | Pilot candidate |
 | Rollout | One shared implementation; $N$ trajectories per action; base action preferred on ties | Fixed |
-| Rollout tie tolerance and residual priority | — | Open |
+| Rollout tie tolerance | — | Open |
 | Rollout budgets $N$ | 10, 25, 50 (pilot); up to 100 if feasible | Pilot candidate |
 | Rollout horizon $H$ | $\min(2n^2, \text{remaining steps})$ | Pilot candidate |
 | Step limit $T_{\max}$ | $4n^2$, identical for all strategies | Pilot candidate |

@@ -50,13 +50,25 @@ def test_action_priority_must_list_every_action_once():
         build_bfs_policy(RUNNING_MAP, action_priority=(Action.RIGHT,))
 
 
-def test_tile_without_a_route_gets_the_fallback_action_and_is_counted():
+def test_tile_without_a_route_gets_a_safe_fallback_and_is_counted():
     cut_off = parse_map("SHF\nHHF\nFFG")  # the start is walled in by holes
     result = build_bfs_policy(cut_off)
     assert bfs_distances(cut_off)[0] == INF
-    assert result.policy[0] is Action.RIGHT  # first action in the default priority
+    # RIGHT and DOWN lead into holes; LEFT bumps into the border and keeps the agent alive.
+    assert result.policy[0] is Action.LEFT
     assert result.diagnostics["fallback_states"] == 1
     assert build_bfs_policy(RUNNING_MAP).diagnostics["fallback_states"] == 0
+
+
+def test_fallback_uses_the_first_action_when_every_move_leads_into_a_hole():
+    # Holes at 1, 3, 5 and 7 isolate every tile, so none of 0, 2, 4, 6 has a route to the goal.
+    isolated = parse_map("SHF\nHFH\nFHG")
+    result = build_bfs_policy(isolated)
+    assert result.policy[4] is Action.RIGHT  # center: all four moves lead into holes
+    assert result.policy[0] is Action.LEFT  # corners prefer a safe border bump
+    assert result.policy[2] is Action.RIGHT
+    assert result.policy[6] is Action.DOWN
+    assert result.diagnostics["fallback_states"] == 4
 
 
 def test_counters_on_a_tiny_map():

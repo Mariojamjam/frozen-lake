@@ -37,8 +37,10 @@ def build_bfs_policy(
 
     Every nonterminal tile intends the move whose deterministic target has the smallest BFS
     distance; ties go to the first action in `action_priority`. Terminal tiles (hole, goal) get
-    None. A nonterminal tile with no route to the goal gets the first action in the priority
-    order as a deterministic fallback, counted in `diagnostics["fallback_states"]`.
+    None. A nonterminal tile with no route to the goal gets a deterministic fallback: the first
+    action in priority order whose deterministic target is not a hole (bumping into a border
+    counts as safe), or the first action overall if every move leads into a hole. Fallbacks are
+    counted in `diagnostics["fallback_states"]`.
 
     Counters: `states_evaluated` is the number of states the search dequeued (the goal
     included), `successors_examined` the in-grid neighbors it checked. The policy extraction
@@ -65,7 +67,7 @@ def build_bfs_policy(
             if distance < best_distance:  # strict: earlier actions win ties
                 best_action, best_distance = action, distance
         if best_action is None:
-            best_action = action_priority[0]
+            best_action = _fallback_action(desc, state, n, action_priority)
             fallback_states += 1
         policy.append(best_action)
 
@@ -76,6 +78,20 @@ def build_bfs_policy(
         successors_examined=neighbor_checks,
         diagnostics={"peak_queue_length": peak_queue, "fallback_states": fallback_states},
     )
+
+
+def _fallback_action(
+    desc: MapDesc, state: int, n: int, action_priority: tuple[Action, ...]
+) -> Action:
+    """Pick an action for a tile with no route to the goal, avoiding holes when possible.
+
+    No action can reach the goal from such a tile, so this is not a good decision, only a
+    deterministic one that does not walk into a hole on purpose.
+    """
+    for action in action_priority:
+        if tile_at(desc, deterministic_move(state, action, n)) is not Tile.HOLE:
+            return action
+    return action_priority[0]
 
 
 def _reverse_bfs(desc: MapDesc) -> tuple[list[float], int, int, int]:

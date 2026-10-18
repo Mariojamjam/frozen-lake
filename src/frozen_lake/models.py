@@ -22,7 +22,7 @@ class Action(IntEnum):
 
 
 # Fixed order used to break ties between equally good actions, for BFS and for Rollout.
-# Proposed in the design doc; still Open until frozen with the BFS implementation.
+# Frozen study setting: changing it changes which actions the policies choose.
 DEFAULT_ACTION_PRIORITY: tuple[Action, ...] = (
     Action.RIGHT,
     Action.DOWN,
