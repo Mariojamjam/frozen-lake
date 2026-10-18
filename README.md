@@ -4,7 +4,7 @@
 
 This research investigates whether investing more computation in an agent's *initial* decision rule pays off once that rule is refined by Monte Carlo Rollout under uncertainty. The testbed is the slippery Gymnasium [`FrozenLake-v1`](https://gymnasium.farama.org/environments/toy_text/frozen_lake/) environment, where every intended move can go wrong.
 
-> **Status:** early development. The validated environment model, the BFS and depth-limited Expectimax base policies, Monte Carlo Rollout over either of them, headless episodes and the terminal explorer are in place.
+> **Status:** early development. The validated environment model, the BFS and depth-limited Expectimax base policies, Monte Carlo Rollout over either of them, headless episodes, the terminal explorer and the experiment runner are in place.
 
 ## Motivation
 
@@ -99,17 +99,15 @@ uv run frozen-lake episode --strategy BFS --size 6 --map-seed 42 --episode-seed 
 
 Prints every real step (state, action, where the agent landed, whether it slipped) and a summary with the ending (`goal`, `hole` or `timeout`) and the agent's computation time. Add `--quiet` for the summary only. Use `--strategy EXP` for Expectimax (configured by `--depth` and `--beta`), and `--strategy BFS-RO` or `EXP-RO` for Monte Carlo Rollout over either policy (configured by `--rollouts` and `--horizon`).
 
-### Planned CLI
-
-The commands below are **targets**. `validate`, `benchmark` and `plot` currently exit with a "not implemented yet" message; `tui` and `episode` already run.
+### Run the experiment
 
 ```bash
-uv run frozen-lake tui --size 6 --strategy EXP-RO --rollouts 50 --seed 42
-uv run frozen-lake episode --size 4 --strategy EXP-RO --rollouts 50
-uv run frozen-lake validate --config configs/pilot.toml
-uv run frozen-lake benchmark --config configs/pilot.toml
-uv run frozen-lake plot --input results/<run_id>
+uv run frozen-lake validate --config configs/experiment.toml             # check the configuration
+uv run frozen-lake benchmark --config configs/experiment.toml --dry-run  # describe the run
+uv run frozen-lake benchmark --config configs/experiment.toml            # run it
 ```
+
+`configs/experiment.toml` describes the whole experiment: lake sizes, maps, episodes, Rollout sample counts and the Expectimax settings. `benchmark` generates every map, builds and times each base policy, plays every strategy on the same maps and episode seeds, and writes raw CSV results, a summary and the run's metadata to a new folder under `results/`, then checks them for completeness.
 
 ## Development
 
@@ -140,6 +138,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main` and on 
 frozen-lake/
 ├── .devcontainer/        # Dev Container (Dockerfile + devcontainer.json)
 ├── .github/workflows/    # CI
+├── configs/              # The experiment configuration (experiment.toml)
 ├── docs/                 # Supplementary documentation
 ├── src/frozen_lake/      # Python package (import name: frozen_lake)
 │   ├── cli.py            # Typer entry point for the `frozen-lake` command
@@ -147,7 +146,8 @@ frozen-lake/
 │   ├── environment.py    # Maps, the real environment, transition model, sampler
 │   ├── episodes.py       # Real episodes: one environment step per decision
 │   ├── policies/         # Base policies: bfs.py, expectimax.py, shared utils.py
-│   ├── rollout.py        # Monte Carlo Rollout over any base policy
+│   ├── rollout.py        # Monte Carlo Rollout over any base policy, and its exact reference
+│   ├── experiments/      # The experiment runner: config, seeds, matrix, runner, records, validation
 │   └── tui/              # Textual explorer (app.py, app.tcss, colors.py)
 ├── tests/                # pytest suite
 ├── pyproject.toml        # Project metadata, dependencies, Ruff/pytest config

@@ -34,6 +34,9 @@ Everything you can run in this project: what each command does, when to use it, 
 | Fix lint and formatting | `uv run ruff check --fix . && uv run ruff format .` | `just format` |
 | Check what CI will check | see [§5.4](#54-reproduce-ci-locally) | `just ci` |
 | Remove caches | — | `just clean` |
+| Check the experiment configuration | `uv run frozen-lake validate --config configs/experiment.toml` | `just validate` |
+| Run the whole experiment | `uv run frozen-lake benchmark --config configs/experiment.toml` | `just benchmark` |
+| Check a finished run | `uv run frozen-lake validate --run results/<folder>` | — |
 | See the installed version | `uv run frozen-lake --version` | — |
 
 ---
@@ -109,6 +112,8 @@ frozen-lake [--version] [--help] COMMAND [OPTIONS]
 |---|---|
 | [`tui`](#43-tui-interactive-explorer) | Explore a lake step by step in the terminal |
 | [`episode`](#44-episode-one-headless-episode) | Play one episode without an interface and print it |
+| [`validate`](#45-validate-check-a-configuration-or-a-run) | Check an experiment configuration, or the results of a run |
+| [`benchmark`](#46-benchmark-run-the-experiment) | Run the whole experiment headless and write its raw results |
 
 Every command accepts `--help`, which lists its options and their defaults.
 
@@ -335,12 +340,109 @@ result: hole in 17 steps · reward 0 · agent compute 1.524 ms · 3622 simulated
 
 Under each step, `estimates` lists the average return of each candidate action (`L`eft, `D`own, `R`ight, `U`p) over its simulated trajectories: the fraction that reached the goal within the horizon. These are sampled estimates, not exact probabilities. `overrode BFS RIGHT` appears when Rollout chose a different action from the base policy. The summary adds how many transitions were simulated in the whole episode; decision time grows with `--rollouts` and `--horizon`.
 
-### 4.5 Exit codes and errors
+### 4.5 `validate`: check a configuration or a run
+
+```bash
+uv run frozen-lake validate --config configs/experiment.toml    # a configuration
+uv run frozen-lake validate --run results/<folder>               # the results of a run
+```
+
+Give exactly one of the two options.
+
+**`--config FILE`** reads the configuration and reports every problem at once: missing or unknown sections and keys (a misspelled key is an error, never silently ignored), wrong types and out-of-range values. When the configuration is valid, it describes the experiment:
+
+```text
+5 sizes [4, 6, 8, 10, 12] × 5 maps × 30 episodes × 18 arms
+arms: BFS, EXP, BFS-RO N=10, EXP-RO N=10, …, BFS-RO N=800, EXP-RO N=800, BFS-RO exact, EXP-RO exact
+13500 episodes · 1550 policy builds
+configuration is valid
+```
+
+**`--run FOLDER`** checks a finished run: every file is present; every map, episode and arm appears exactly once; every arm of an episode shares the same episode seed; each episode's decisions add up to its steps; build rows are complete; and every saved map matches its seed. `benchmark` runs the same check at the end of every run.
+
+### 4.6 `benchmark`: run the experiment
+
+```bash
+uv run frozen-lake benchmark --config configs/experiment.toml [--output-dir DIR] [--dry-run]
+```
+
+**What it does.**
+1. Generates and saves every map, before any strategy plays.
+2. Builds each base policy (BFS and Expectimax) from scratch on each map: one untimed warm-up, then the configured number of timed builds, each recorded.
+3. Plays every **arm** on every map and episode, all with the same episode seeds: `BFS` and `EXP` once each, `BFS-RO` and `EXP-RO` once per sample count `N`, and the two exact references.
+4. Writes the raw results, a summary and the run's metadata, then validates them.
+
+It prints the experiment it is about to run, then one progress line per finished map (on standard error, between episodes, so it never enters a measured time), then the results folder.
+
+**When to use it.** To produce the data the analysis uses. It is headless: nothing is drawn and Textual is never loaded.
+
+| Option | Meaning |
+|---|---|
+| `--config FILE` | The experiment configuration (required) |
+| `--output-dir DIR` | Folder for the results, overriding `experiment.output_dir` |
+| `--dry-run` | Validate and describe the experiment, then stop without running |
+
+Results go to a new folder named after the start time and the first 8 characters of the configuration hash, for example `results/20261018-125816-7307f7ed/`. If that folder already exists, `benchmark` stops instead of overwriting it.
+
+#### The configuration file
+
+`configs/experiment.toml` describes the whole experiment. Every key is required.
+
+| Key | Meaning |
+|---|---|
+| `environment.sizes` | Lake sizes `n` (each `≥ 2`, no repeats) |
+| `environment.frozen_probability` | Chance that a generated tile is ice, in `(0, 1]` |
+| `environment.success_rate` | Chance that a move goes as intended, in `(0, 1]` |
+| `environment.max_steps_multiplier` | Real-step limit per episode = multiplier × n² |
+| `policies.expectimax_depth` | Expectimax look-ahead depth (`≥ 1`) |
+| `policies.heuristic_beta` | Expectimax leaf heuristic, in `(0, 1)` |
+| `policies.discount_factor` | Discount γ, in `(0, 1]` |
+| `policies.build_repeats` | Timed builds of each base policy per map (`≥ 1`) |
+| `policies.build_warmup` | Untimed builds before them (`≥ 0`) |
+| `rollout.samples_per_action` | The sample counts `N` to run (each `≥ 1`, no repeats) |
+| `rollout.horizon_multiplier` | Rollout horizon = multiplier × n², capped by the real steps left |
+| `rollout.exact_reference` | Also play Rollout with exact values (`true` or `false`) |
+| `experiment.maps_per_size` | Maps generated for each size |
+| `experiment.episodes_per_map` | Episodes each arm plays on each map |
+| `experiment.master_seed` | Every map, episode and simulation seed derives from it |
+| `experiment.output_dir` | Where result folders are created |
+| `experiment.write_decisions` | Write `decision_metrics.csv` (`true` or `false`) |
+
+#### The results folder
+
+| File | One row per | Holds |
+|---|---|---|
+| `configuration.json` | — | The configuration that was run |
+| `maps.json` | map | Its id (`size-index`), seed and exact rows of tiles |
+| `policy_metrics.csv` | timed policy build | Build time and the search's counters |
+| `episode_metrics.csv` | real episode | Strategy, estimator, `N`, seeds, ending, steps, agent time, wall time, simulated transitions |
+| `decision_metrics.csv` | real decision | State, base and chosen action, whether Rollout overrode the base policy, time, and each action's value |
+| `summary.csv` | size × strategy × estimator × `N` | Success rate, median decision time, mean agent time per episode, median build time, amortized time per episode |
+| `metadata.json` | — | Start and end times, command, configuration and maps hashes, seed scheme, git commit, Python, package versions, machine and units |
+
+Conventions used in every file:
+- times are in nanoseconds (`_ns`) or milliseconds (`_ms`);
+- `estimator` is `sampled` or `exact` for Rollout strategies, and blank for `BFS` and `EXP`;
+- `rollout_n` is blank where it does not apply: for `BFS`, `EXP` and the exact reference, which samples nothing;
+- a blank value always means "does not apply", never zero;
+- in `summary.csv`, the exact reference's cost columns are blank, because it simulates nothing and its time is not a cost to compare;
+- `amortized_ms_per_episode` is the median build time divided by the episodes per map, plus the mean agent time per episode.
+
+#### Examples
+
+```bash
+uv run frozen-lake benchmark --config configs/experiment.toml --dry-run    # describe only
+uv run frozen-lake benchmark --config configs/experiment.toml              # the full experiment
+uv run frozen-lake benchmark --config tests/data/tiny.toml --output-dir /tmp/runs   # a few seconds
+```
+
+### 4.7 Exit codes and errors
 
 | Code | Meaning |
 |---|---|
 | `0` | Success |
-| `2` | Invalid option value or unknown strategy |
+| `1` | `validate --run` found problems in the results |
+| `2` | Invalid option value, unknown strategy, invalid configuration, or an existing results folder |
 
 Invalid values are rejected before anything runs, with a message naming the problem:
 
@@ -370,7 +472,8 @@ uv run pytest -v                                   # one line per test
 | `tests/test_environment.py` | Maps, the real environment, the transition model and its parity with Gymnasium, the sampler |
 | `tests/test_bfs.py` | BFS distances, policy extraction, ties, fallbacks, counters |
 | `tests/test_expectimax.py` | Expectimax heuristic, MAX/CHANCE values, memoization, ties, fallbacks, counters |
-| `tests/test_rollout.py` | Simulated trajectories, Rollout decisions, ties, horizon limits, reproducibility, isolation from the real environment |
+| `tests/test_rollout.py` | Simulated trajectories, Rollout decisions, ties, horizon limits, reproducibility, isolation from the real environment, the exact reference |
+| `tests/test_experiments.py` | Configuration validation, seeds, maps, arms, whole runs, pairing, reproducibility, result validation |
 | `tests/test_episodes.py` | The episode engine and whole episodes played by a policy |
 | `tests/test_cli.py` | Command-line options, output and errors |
 | `tests/test_tui.py` | The terminal interface, driven by key presses without a screen |
@@ -418,6 +521,8 @@ Run `just` with no arguments to list them. Parameters are positional and have de
 | `just clean` | Removes `.pytest_cache`, `.ruff_cache`, `__pycache__` | Leaves `.venv` untouched |
 | `just tui [size] [episode_seed] [map_seed] [args…]` | `frozen-lake tui --size {size} --episode-seed {episode_seed} --map-seed {map_seed} {args}` | Defaults: size 6, episode seed 42, map seed 42 |
 | `just episode [size] [episode_seed] [args…]` | `frozen-lake episode --size {size} --episode-seed {episode_seed} {args}` | Defaults: size 6, episode seed 7 |
+| `just validate` | `frozen-lake validate --config configs/experiment.toml` | Check the experiment configuration |
+| `just benchmark [config] [output_dir] [args…]` | `frozen-lake benchmark --config {config} --output-dir {output_dir} {args}` | Defaults: `configs/experiment.toml`, and the config's own `output_dir` when `output_dir` is empty or omitted |
 | `just test [args…]` | `pytest -q {args}` | e.g. `just test -k fallback -x` |
 | `just lint` | `ruff check .` and `ruff format --check .` | Changes nothing |
 | `just format` | `ruff check --fix .` and `ruff format .` | Changes files |
@@ -432,6 +537,9 @@ just tui 10                    # 10×10 lake, episode seed 42
 just tui 8 12 7                # 8×8, episode seed 12, map seed 7
 just tui 4 1 --max-steps 5     # 4×4, episode seed 1, quick timeout
 just episode 8 3 --quiet       # 8×8, episode seed 3, summary only
+just benchmark                 # the experiment, from configs/experiment.toml
+just benchmark my.toml runs    # another config, results under runs/
+just benchmark my.toml "" --dry-run   # another config, its own output_dir, only print the workload
 ```
 
 ---

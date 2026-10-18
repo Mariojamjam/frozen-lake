@@ -8,9 +8,8 @@ Every setting in this document has one of three statuses:
 
 | Status | Meaning |
 |---|---|
-| **Fixed** | Part of the study design. Changing it changes the study. |
-| **Pilot candidate** | A starting value to be tested in the pilot, then confirmed or replaced *before* the main study. |
-| **Open** | Not yet decided. It must be decided and recorded before the main study. |
+| **Fixed** | Part of the study design, including every experimental setting in `configs/experiment.toml`. Changing it changes the study. |
+| **Open** | Not yet decided. It must be decided and recorded before the experiment runs. |
 
 No result is reported here. All numbers in the worked examples are either computed from the definitions (marked *computed*) or invented to illustrate a formula (marked *illustrative*). None of them is an experimental finding.
 
@@ -29,7 +28,7 @@ No result is reported here. All numbers in the worked examples are either comput
 9. [Measurements](#9-measurements)
 10. [Experimental units, control, and reproducibility](#10-experimental-units-control-and-reproducibility)
 11. [Statistical analysis plan](#11-statistical-analysis-plan)
-12. [Research stages: pilot, protocol freeze, main study](#12-research-stages-pilot-protocol-freeze-main-study)
+12. [Research stages](#12-research-stages)
 13. [Workload planning](#13-workload-planning)
 14. [Threats to validity](#14-threats-to-validity)
 15. [Scope of conclusions](#15-scope-of-conclusions)
@@ -180,7 +179,7 @@ $$
 - $\mathcal{A}$: the four intended directions.
 - $P(s' \mid s, a)$: the probability of reaching $s'$ after choosing $a$ in $s$, given by the slip rule above.
 - $R(s, a, s')$: the immediate reward. It is $1$ when $s'$ is the goal and $0$ otherwise (**Fixed**).
-- $\gamma$: the discount factor. It is $\gamma = 1$ (**Pilot candidate**). With a finite episode, no discounting is needed.
+- $\gamma$: the discount factor. It is $\gamma = 1$ (**Fixed**). With a finite episode, no discounting is needed.
 
 Each possible outcome of an action is stored as a **transition record** $(p, s', r, t)$: its probability, next state, reward, and whether it ends the episode ($t$ = terminated). The planners and Rollout all read the same records, extracted once from Gymnasium and verified against it.
 
@@ -198,7 +197,7 @@ A real episode ends in exactly one of three ways:
 
 Termination is part of the problem; truncation is an external time budget. A hole and a timeout are kept distinct: a policy that never falls but never arrives fails differently from one that takes reckless risks. If the goal is entered on the last allowed step, both flags are raised, and the episode counts as a **success**.
 
-The step limit is the same for all strategies on a given map. It is set explicitly instead of relying on the `FrozenLake-v1` preset, which silently caps every map at 100 steps. The candidate limit is $T_{\max} = 4n^2$ (**Pilot candidate**).
+The step limit is the same for all strategies on a given map. It is set explicitly instead of relying on the `FrozenLake-v1` preset, which silently caps every map at 100 steps. The limit is $T_{\max} = 4n^2$ (**Fixed**).
 
 ### 2.6 A path is not a guarantee
 
@@ -365,7 +364,7 @@ Reading the CHANCE equation term by term:
 - the indicator $\mathbf{1}[\neg t]$ is zero when the outcome ends the episode, so holes and the goal have **no continuation value**;
 - the goal's reward of 1 is therefore counted **once**, on entry.
 
-Search depth $D = 6$ is a **Pilot candidate**. The policy is computed for **every** nonterminal state before any episode starts. Values are memoized by $(s, d)$: the depth must be part of the cache key, because $V_3(s)$ and $V_5(s)$ generally differ.
+Search depth $D = 6$ is **Fixed**. The policy is computed for **every** nonterminal state before any episode starts. Values are memoized by $(s, d)$: the depth must be part of the cache key, because $V_3(s)$ and $V_5(s)$ generally differ.
 
 **The leaf heuristic (Fixed family).** When the depth runs out in a nonterminal state, Expectimax scores the state by its BFS distance to the goal:
 
@@ -378,7 +377,7 @@ h_\beta(s) =
 \qquad 0 < \beta < 1 .
 $$
 
-Closer states score higher. With $\beta = 0.90$ (**Pilot candidate**, fixed as the starting value), one step costs 10% of the score: $h = 0.9$ at distance 1, $0.81$ at distance 2, $0.729$ at distance 3. The heuristic is a **progress score, not a probability of success**. Two consequences are disclosed explicitly:
+Closer states score higher. With $\beta = 0.90$ (**Fixed**), one step costs 10% of the score: $h = 0.9$ at distance 1, $0.81$ at distance 2, $0.729$ at distance 3. The heuristic is a **progress score, not a probability of success**. Two consequences are disclosed explicitly:
 1. Expectimax is not independent of BFS: it uses BFS distances at its search frontier.
 2. Its build cost must include computing those distances (§8.1).
 
@@ -429,11 +428,11 @@ $$
 | 0.90 | 0.656 | 0.720 | B (closer, riskier) |
 | 0.95 | 0.772 | 0.760 | A (farther, safer) |
 
-Because $\beta$ steers Expectimax's behavior, it is part of the Expectimax design. It is chosen *before* the main study and never tuned afterwards to make one strategy win (§12.1).
+Because $\beta$ steers Expectimax's behavior, it is part of the Expectimax design. It is chosen *before* the experiment runs and never tuned afterwards to make one strategy win (§12.1).
 
 ### 4.5 Depth versus distance
 
-Without slipping, a state at BFS distance $d$ needs at least $d$ moves to reach the goal, and slipping cannot shorten this. In the running example the start has distance 6, so with $D = 6$ Expectimax can just see the goal from the start, but only along the shortest path. On larger maps, most states are farther than $D$ from the goal, and their values come mostly from the heuristic. Whether $D = 6$ leaves enough planning signal on large maps is one of the pilot's questions.
+Without slipping, a state at BFS distance $d$ needs at least $d$ moves to reach the goal, and slipping cannot shorten this. In the running example the start has distance 6, so with $D = 6$ Expectimax can just see the goal from the start, but only along the shortest path. On larger maps, most states are farther than $D$ from the goal, and their values come mostly from the heuristic. Whether $D = 6$ leaves enough planning signal on the larger maps is something the results will show; the depth is not changed after seeing them.
 
 ---
 
@@ -464,14 +463,14 @@ $$
 - $N$ is the number of trajectories **per candidate action**, so one decision runs $4N$ trajectories;
 - $H$ is the simulation horizon, not the Expectimax depth.
 
-When the real episode has fewer steps left than $H$, simulations respect what remains: $H_{\text{eff}} = \min(H, \text{remaining real steps})$. The candidate horizon is $H = 2n^2$ (**Pilot candidate**). Rollout strategies require $N \ge 1$. The strategies without Rollout are separate conditions, not "$N = 0$".
+When the real episode has fewer steps left than $H$, simulations respect what remains: $H_{\text{eff}} = \min(H, \text{remaining real steps})$. The horizon is $H = 2n^2$ (**Fixed**). Rollout strategies require $N \ge 1$. The strategies without Rollout are separate conditions, not "$N = 0$".
 
 ### 5.3 Tie-breaking
 
 With sparse rewards, several actions often have the same estimate. A common case is all zeros, when no trajectory reached the goal. Picking the first action in enumeration order would add an arbitrary bias. The rule is (**Fixed**):
 1. find the maximal estimate;
 2. if the base policy's action is among the maximizers, choose it;
-3. otherwise choose the first maximizer in the fixed action priority RIGHT, DOWN, LEFT, UP (**Open**: numerical tolerance for "equal").
+3. otherwise choose the first maximizer in the fixed action priority RIGHT, DOWN, LEFT, UP. Estimates closer than $10^{-12}$ count as equal (**Fixed**); with returns of 0 or 1 they are multiples of $1/N$, so this only absorbs rounding.
 
 This makes Rollout fall back to its base policy when simulations carry no information.
 
@@ -503,6 +502,18 @@ Rollout plays UP, even though every later simulated move followed BFS. These num
 ### 5.6 What Rollout does not guarantee
 
 With exact values, one step of greedy improvement never makes a policy worse. With finite samples and a finite horizon, the estimates are noisy and truncated, and Rollout can occasionally pick a worse action. The study therefore never assumes that `BFS-RO` beats `BFS` or that `EXP-RO` beats `EXP`. These are measured.
+
+### 5.7 The exact reference (N = ∞)
+
+Because the transition model is known, the quantity Rollout estimates can also be computed exactly. With the base policy fixed, its finite-horizon value follows by dynamic programming:
+
+$$
+V_0(s) = 0, \qquad V_h(s) = \sum_{(p,\, s',\, r,\, t)\, \in\, P(s, \pi_0(s))} p\,\big(r + \mathbf{1}[\neg t]\,\gamma\,V_{h-1}(s')\big),
+$$
+
+and the exact value of trying action $a$ first is $Q_h(s,a) = \sum_{(p,s',r,t) \in P(s,a)} p\,\big(r + \mathbf{1}[\neg t]\,\gamma\,V_{h-1}(s')\big)$. The table $V_h(s)$ is computed once per map, for every horizon up to $H$, so each decision is a lookup.
+
+The experiment also plays an **exact reference** for each Rollout strategy (**Fixed**): the same Rollout, with the same horizon cap and tie rule, but with exact values in place of sampled estimates. It samples nothing, so it shows where Rollout over that base policy ends up as $N$ grows: the ceiling that the sampled strategies approach. It is reported as a reference line for success only. Its time is not a cost to compare: it simulates nothing, and its value table is computed when it is set up.
 
 ---
 
@@ -590,7 +601,9 @@ $$
 
 For the strategies without Rollout, each decision is a table lookup and $\overline{T}_{\text{episode}}$ is close to zero. For the Rollout strategies, it is dominated by simulation.
 
-**Example (illustrative arithmetic).** If building $\pi_{\text{EXP}}$ took 40 ms and the policy served $R = 20$ episodes whose decisions cost 150 ms each on average, then $T_{\text{amortized}} = 40/20 + 150 = 152$ ms per episode. With $R = 2$, the same build would add 20 ms instead of 2. The value of $R$ changes the answer, so it must be declared with every amortized result (**Open**: its exact definition, e.g. episodes per map per strategy).
+**Example (illustrative arithmetic).** If building $\pi_{\text{EXP}}$ took 40 ms and the policy served $R = 20$ episodes whose decisions cost 150 ms each on average, then $T_{\text{amortized}} = 40/20 + 150 = 152$ ms per episode. With $R = 2$, the same build would add 20 ms instead of 2. The value of $R$ changes the answer, so it is declared with every amortized result.
+
+**Convention (Fixed).** The experiment records build times and per-episode decision times as separate raw measurements; no $R$ is built into the data. The analysis uses $R = E$, the number of episodes each strategy plays on a map, as the primary amortization, and also shows how the comparison changes as $R$ varies.
 
 The paired cost contrast mirrors the success contrast:
 
@@ -664,7 +677,7 @@ Times are recorded in nanoseconds with a monotonic high-resolution clock and con
 
 ### 10.1 Maps
 
-Maps are generated **before** any strategy runs, from explicit seeds. Each tile is frozen with probability $q$ (**Pilot candidate**: $q = 0.90$), with `S` top-left and `G` bottom-right, and a map is redrawn until a deterministic path exists. The exact layout of every map is saved together with its seed, size, and $q$, and all four strategies run on the saved layout. A map is never regenerated between strategies.
+Maps are generated **before** any strategy runs, from explicit seeds. Each tile is frozen with probability $q = 0.90$ (**Fixed**), with `S` top-left and `G` bottom-right, and a map is redrawn until a deterministic path exists. The exact layout of every map is saved together with its seed, size, and $q$, and all four strategies run on the saved layout. A map is never regenerated between strategies.
 
 The **map is the unit of environmental variation**. Several episodes on one map are repeated measurements of that map, not independent maps. Conclusions about "maps of size $n$" therefore need several maps per size.
 
@@ -685,17 +698,19 @@ Separation matters for fairness. If Rollout drew from the real environment's str
 Every seed is derived deterministically from a canonical description of its role, for example:
 
 ```text
-run_seed / map_size / map_index / episode_index / stream
+v1 / master_seed / map / size / map_index
+v1 / master_seed / episode / size / map_index / episode_index
+v1 / master_seed / rollout / size / map_index / episode_index / strategy / N
 ```
 
-The derivation uses a stable hash rather than Python's per-process salted `hash()`. Derived seeds and the scheme version are saved with the results. **Open:** the exact hash and canonical format, and whether simulation seeds also depend on strategy and $N$.
+The seed is the first 8 bytes of the SHA-256 hash of that string, shifted to 63 bits (**Fixed**), never Python's per-process salted `hash()`. Every arm of an episode uses the same episode seed; each sampled Rollout arm has its own simulation seed, so changing $N$ never changes the real slips. Derived seeds and the scheme version (`v1`) are saved with the results.
 
 ### 10.4 Measurement hygiene
 
 - Runs are headless: no rendering, animation, or progress output inside timed sections.
 - Policy build, decision, and episode times are separate measurements.
-- Builds are repeated on fresh state to obtain stable build-time estimates (**Open**: number of repetitions).
-- The main study runs sequentially, in one process, on one machine, whose hardware and software are recorded (**Open**: the machine).
+- Each base policy is built 30 times per map, from scratch, after one untimed warm-up build; every repeat is recorded and summaries use the median (**Fixed**).
+- The experiment runs sequentially, in one process, on one machine, whose hardware and software are recorded (**Open**: the machine).
 - No correction for "interpreter overhead" is applied after the fact.
 
 Maps, seeds, decisions, and outcomes are expected to reproduce exactly. Timings are not expected to reproduce across machines or system load.
@@ -714,7 +729,7 @@ Results are reported **per map size**. Sizes differ in difficulty, and a single 
 
 ### 11.2 Uncertainty
 
-Uncertainty must respect the two levels of variation: episodes within a map, and maps within a size. The planned approach is a **cluster bootstrap** (**Open**: final procedure and number of resamples):
+Uncertainty must respect the two levels of variation: episodes within a map, and maps within a size. The planned approach is a **cluster bootstrap**, computed in the analysis from the raw data, not by the experiment runner (**Open**: final procedure and number of resamples):
 1. resample maps with replacement;
 2. resample episodes within each selected map;
 3. recompute the estimate;
@@ -731,7 +746,7 @@ Decision times are skewed: a few long decisions occur when trajectories survive 
 | Figure | Shows | Answers |
 |---|---|---|
 | **A (primary)** | Success rate vs amortized time per episode, per size; one point per strategy and $N$ | The research question |
-| B | Success rate vs $N$, with base-only strategies as reference lines | H1, H3 |
+| B | Success rate vs $N$ (log scale), with base-only strategies and the exact reference as horizontal lines | H1, H3 |
 | C | Decision time and simulated transitions vs $N$ | H3, cost mechanism |
 | D | Policy build time vs map size | H2 |
 | E | Search work vs map size, per algorithm and counter | H2, H5 |
@@ -742,88 +757,60 @@ All figures are generated from the saved raw data, never by re-running agents.
 
 ---
 
-## 12. Research stages: pilot, protocol freeze, main study
+## 12. Research stages
 
 ```mermaid
 flowchart LR
-  A[Define estimands and cost accounting] --> B[Pilot on dedicated maps]
-  B --> C[Apply predeclared criteria]
-  C --> D[Freeze main protocol]
-  D --> E[Generate and save main maps]
-  E --> F[Run all strategies headless]
-  F --> G[Validate data completeness]
-  G --> H[Analysis and figures]
+  A[Fix the protocol in configs/experiment.toml] --> B[Generate and save all maps]
+  B --> C[Build and time every base policy]
+  C --> D[Play every arm headless on the same maps and seeds]
+  D --> E[Validate data completeness]
+  E --> F[Analysis and figures]
 ```
 
-### 12.1 Close the estimands and the cost accounting
+### 12.1 Fix the protocol before running
 
-Before the pilot: confirm the contrasts in §6.2, the estimands in §7, and the definition of $R$. This fixes what "better" and "cheaper" mean before any number is seen.
+There is a single experiment, described by `configs/experiment.toml`. Every setting in it is chosen and recorded here **before** the experiment runs, with the reasons for each value, so that no value can be fitted to the results:
 
-### 12.2 Pilot
+| Setting | Value | Why |
+|---|---|---|
+| Map sizes $n$ | 4, 6, 8, 10, 12 | Increasing size is the study's main axis; 12×12 keeps the whole run within about half an hour |
+| Maps per size | 5 | Map-level variation; the map is the unit of environmental variation |
+| Episodes per map and arm | 30 | Precision of each map's success rate (§11.2) |
+| Rollout budgets $N$ | 10, 25, 50, 100, 200, 400, 800 | Log-spaced, so the results can show both the noisy low-$N$ regime and the high-$N$ regime |
+| Exact reference | On | The $N = \infty$ ceiling for each Rollout strategy (§5.7) |
+| Expectimax depth $D$ | 6 | Look-ahead within reach of the goal on small maps, affordable on large ones |
+| $\beta$ | 0.90 | Starting value of the heuristic family; not tuned afterwards |
+| Discount $\gamma$ | 1 | Episodes are finite; every success counts fully |
+| Frozen-tile probability $q$ | 0.90 | About 10% holes |
+| Step limit $T_{\max}$ | $4n^2$ | Identical for all strategies |
+| Rollout horizon $H$ | $\min(2n^2, \text{remaining steps})$ | Long enough to reach the goal, finite runtime |
+| Policy builds | 30 timed per map, after 1 warm-up | Stable build-time medians |
+| Master seed | 2026 | Every map, episode and simulation seed derives from it (§10.3) |
 
-The pilot uses **maps reserved for the pilot**, distinct from the main study's maps, so that calibration decisions cannot be fitted to the maps used for the final comparison.
+### 12.2 Run and validate
 
-| Pilot candidate | Value |
-|---|---|
-| Map sizes $n$ | 4, 6, 8, 10 |
-| Maps per size | 2 |
-| Episodes per map and strategy | 20 |
-| Rollout budgets $N$ | 10, 25, 50 |
-| Expectimax depth $D$ | 6 |
-| $\beta$ | 0.90, with a sensitivity check at 0.85 and 0.95 |
-| Frozen-tile probability $q$ | 0.90 |
-| Step limit $T_{\max}$ | $4n^2$ |
-| Rollout horizon $H$ | $\min(2n^2, \text{remaining steps})$ |
+`frozen-lake benchmark --config configs/experiment.toml` generates and saves every map, builds and times every base policy, and plays every arm on the same maps and episode seeds, headless and with no parameter changes during the run. The results go to a new folder named after the start time and the configuration hash; an existing folder is never overwritten. Before anything is analyzed, the written data are validated:
+- every map, episode and arm is present, and no row is duplicated;
+- every arm of an episode shares the same episode seed;
+- every episode's decisions add up to its steps;
+- the saved maps match their seeds.
 
-The pilot answers questions of **feasibility and informativeness**, not of which strategy is better:
-- Is the transition model behaving as specified (80/10/10, borders, terminals)?
-- How long do episodes, maps, and budgets take, and is the main matrix affordable?
-- Do success rates show variation? If every strategy is near 0% (or near 100%) at some size, that size cannot discriminate between strategies.
-- How often do all-zero Rollout estimates and fallback actions occur?
-- Does depth $D = 6$ leave Expectimax mostly guided by the heuristic on large maps?
-- How sensitive is Expectimax's behavior to $\beta$?
+### 12.3 Changing the protocol
 
-**Selection rule.** Parameters are chosen by criteria declared in advance: affordable runtime, success rates away from floor and ceiling, and informative variation. They are never chosen because they favor one strategy. In particular, $\beta$ and $D$ are fixed before any main-study comparison of `EXP-RO` with `BFS-RO`.
-
-### 12.3 Freeze the main protocol
-
-Before the main study, record:
-- map sizes, number of maps, and episodes per map and strategy;
-- $N$ levels, depth $D$, and $\beta$;
-- step limit and rollout horizon conventions;
-- frozen-tile probability;
-- seed scheme and version;
-- tie-breaking tolerance;
-- the measurement machine and software environment.
-
-Candidates for the main study are at least 5 maps per size, at least 30 episodes per map and strategy, and $N \in \{10, 25, 50, 100\}$ if feasible.
-
-### 12.4 Main study and analysis
-
-Generate and save all main maps, then run every strategy headlessly on the same maps and episode identifiers, with no parameter changes during the run. Before any analysis, validate the data:
-- every map and episode appears for every strategy;
-- no row is duplicated;
-- units are consistent;
-- every success rate lies in $[0, 1]$.
-
-Then compute the estimands and figures from the saved data.
+If a setting changes after results have been seen (for example, if one size gives no variation in success for any strategy), that is a **new protocol version**: it is recorded here with its reason and run as a new experiment, in its own results folder. Earlier results are kept, never overwritten, and results from different protocol versions are never mixed.
 
 ---
 
 ## 13. Workload planning
 
-The strategies without Rollout do not depend on $N$, so they run once per map and episode, not once per budget. With $S$ sizes, $M$ maps per size, $E$ episodes, and $L$ rollout budgets, the number of real episodes is:
+The strategies without Rollout do not depend on $N$, so they run once per map and episode, not once per budget. With $S$ sizes, $M$ maps per size, $E$ episodes, $L$ rollout budgets and the two exact references, the number of real episodes is:
 
 $$
-S \times M \times E \times (2 + 2L).
+S \times M \times E \times (2 + 2L + 2) = 5 \times 5 \times 30 \times 18 = 13{,}500.
 $$
 
-| Plan | $S$ | $M$ | $E$ | $L$ | Real episodes |
-|---|---:|---:|---:|---:|---:|
-| Pilot (candidate) | 4 | 2 | 20 | 3 | 1,280 |
-| Main (candidate) | 7 | 5 | 30 | 4 | 10,500 |
-
-Each Rollout episode contains thousands to hundreds of thousands of simulated transitions (§8.2). For this reason, the number of simulated transitions, measured in the pilot, predicts total cost better than the episode count. The main matrix is sized from pilot measurements before it is frozen.
+Each Rollout episode contains thousands to hundreds of thousands of simulated transitions (§8.2), so the number of simulated transitions predicts total cost better than the episode count. Measured before fixing the protocol, the largest maps dominate: on a 12×12 lake, one episode of each sampled budget from $N = 10$ to $N = 800$ takes about 4 s in total per Rollout strategy. The whole experiment is expected to take about half an hour on the development machine; `frozen-lake benchmark --dry-run` prints the exact matrix before running.
 
 ---
 
@@ -833,15 +820,15 @@ Each Rollout episode contains thousands to hundreds of thousands of simulated tr
 |---|---|---|
 | Heuristic read as a probability | Misleading interpretation of Expectimax values | $h$ is labeled a progress score; $\widehat{Q}$ is labeled a sampled estimate; neither is the measured success rate |
 | Expectimax depends on BFS distances | The two base policies are not independent methods | Disclosed; BFS preprocessing is charged to Expectimax's build cost |
-| $\beta$ or $D$ tuned to favor a strategy | Biased comparison | Selection criteria declared in advance; values frozen before main comparisons |
+| $\beta$ or $D$ tuned to favor a strategy | Biased comparison | Values fixed and justified before running (§12.1) |
 | Early failure looks cheap | Confounds cost with failure | Success and amortized cost are reported together; paired-state decision time is added |
 | Simulation differs from Gymnasium | Invalidates every result | The transition model is verified record by record against Gymnasium and against an independent geometric reconstruction |
 | Simulations alter real episodes | Contaminates the real-episode randomness | Separate random streams, verified by tests |
 | Unequal step limits | Unfair success rates | One explicit step limit per map for all strategies |
-| Sparse rewards produce all-zero estimates | Arbitrary choices | Tie rule prefers the base action; horizon checked in the pilot |
+| Sparse rewards produce all-zero estimates | Arbitrary choices | Tie rule prefers the base action; horizon of $2n^2$ steps |
 | Few maps per size | Results driven by specific maps | Several maps per size; map-level uncertainty |
 | Noise mistaken for an effect of $N$ | Overstated benefit of more samples | Intervals; no assumption of monotonic improvement |
-| Pilot maps reused in the main study | Calibration fitted to evaluation data | Separate pilot and main maps |
+| Settings tuned after seeing results | Conclusions fitted to the data | Every setting fixed before running (§12.1); any later change is a new protocol version (§12.3) |
 | Timing noise and machine effects | Unstable cost estimates | One machine, sequential runs, repeated builds, recorded environment |
 
 ---
@@ -861,7 +848,7 @@ It cannot establish that any strategy is universally better. It also cannot esta
 | Environment | Gymnasium `FrozenLake-v1`, square maps, `S` top-left, `G` bottom-right | Fixed |
 | Movement | 0.8 intended, 0.1 to each perpendicular direction, clamped at borders | Fixed |
 | Rewards | 1 on entering the goal, 0 otherwise | Fixed |
-| Discount | $\gamma = 1$ | Pilot candidate |
+| Discount | $\gamma = 1$ | Fixed |
 | Episode endings | `goal`, `hole`, `timeout` kept distinct; goal on the last step counts as success | Fixed |
 | Transition model | Extracted from Gymnasium and verified; one record per slip direction; zero-probability records dropped | Fixed |
 | Strategies | `BFS`, `EXP`, `BFS-RO`, `EXP-RO` | Fixed |
@@ -869,23 +856,26 @@ It cannot establish that any strategy is universally better. It also cannot esta
 | BFS | Reverse BFS from the goal; shortest-distance action | Fixed |
 | Action priority for ties and fallback | RIGHT, DOWN, LEFT, UP; fallback prefers a non-hole target | Fixed |
 | Expectimax | MAX/CHANCE recursion memoized by $(s, d)$; terminal outcomes have no continuation value | Fixed |
-| Expectimax depth $D$ | 6 | Pilot candidate |
+| Expectimax depth $D$ | 6 | Fixed |
 | Leaf heuristic | $h_\beta(s) = \beta^{d_{\text{BFS}}(s, G)}$, zero for terminal or unreachable states | Fixed (family) |
-| $\beta$ | 0.90; sensitivity 0.85 and 0.95 | Pilot candidate |
+| $\beta$ | 0.90 | Fixed |
 | Rollout | One shared implementation; $N$ trajectories per action; base action preferred on ties | Fixed |
-| Rollout tie tolerance | — | Open |
-| Rollout budgets $N$ | 10, 25, 50 (pilot); up to 100 if feasible | Pilot candidate |
-| Rollout horizon $H$ | $\min(2n^2, \text{remaining steps})$ | Pilot candidate |
-| Step limit $T_{\max}$ | $4n^2$, identical for all strategies | Pilot candidate |
-| Map sizes | 4, 6, 8, 10 (pilot); final range undecided | Pilot candidate |
-| Frozen-tile probability $q$ | 0.90 | Pilot candidate |
-| Maps per size, episodes per map | 2 and 20 (pilot); at least 5 and 30 (main) | Pilot candidate |
+| Rollout tie tolerance | $10^{-12}$ | Fixed |
+| Rollout budgets $N$ | 10, 25, 50, 100, 200, 400, 800 | Fixed |
+| Exact reference | Rollout with exact values ($N = \infty$), success only | Fixed |
+| Common random numbers | Not used: sampled trajectories are independent | Fixed |
+| Rollout horizon $H$ | $\min(2n^2, \text{remaining steps})$ | Fixed |
+| Step limit $T_{\max}$ | $4n^2$, identical for all strategies | Fixed |
+| Map sizes | 4, 6, 8, 10, 12 | Fixed |
+| Frozen-tile probability $q$ | 0.90 | Fixed |
+| Maps per size, episodes per map | 5 and 30 | Fixed |
+| Policy builds | 30 timed per map and base policy, after 1 warm-up; median | Fixed |
 | Primary outcome | Success rate vs amortized time per episode, as two axes | Fixed |
 | Cost accounting | Standalone build costs; build, decision, and episode times separate | Fixed |
-| Amortization denominator $R$ | — | Open |
+| Amortization denominator $R$ | Raw times recorded; $R = E$ in the analysis, plus a curve over $R$ | Fixed |
 | Random streams | Map, real, and simulation streams kept separate | Fixed |
-| Seed derivation | Stable hash of a canonical description | Open (details) |
-| Uncertainty | Cluster bootstrap over maps and episodes | Open (procedure) |
+| Seed derivation | SHA-256 of a canonical description, scheme `v1` | Fixed |
+| Uncertainty | Cluster bootstrap over maps and episodes, in the analysis | Open (procedure) |
 | Measurement platform | One recorded machine, sequential runs | Open (machine) |
 
-Every **Open** and **Pilot candidate** entry is decided and recorded before the main study begins. After the freeze, any change that affects the meaning of a measurement requires a new protocol version, and data collected under different protocol versions are not mixed.
+Every **Open** entry is decided and recorded before the experiment runs. Any later change that affects the meaning of a measurement is a new protocol version (§12.3), and data collected under different protocol versions are not mixed.

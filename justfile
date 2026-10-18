@@ -30,6 +30,16 @@ tui size="6" episode_seed="42" map_seed="42" *args:
 episode size="6" episode_seed="7" *args:
     uv run frozen-lake episode --size {{size}} --episode-seed {{episode_seed}} {{args}}
 
+# Check the experiment configuration
+[group('experiment')]
+validate:
+    uv run frozen-lake validate --config configs/experiment.toml
+
+# Run the experiment, from configs/experiment.toml unless another config is given (e.g. `just benchmark my.toml runs`)
+[group('experiment')]
+benchmark config="configs/experiment.toml" output_dir="" *args:
+    uv run frozen-lake benchmark --config {{quote(config)}} {{ if output_dir != "" { "--output-dir " + quote(output_dir) } else { "" } }} {{args}}
+
 # --- quality -------------------------------------------------------------------
 
 # Run tests; extra arguments go to pytest (e.g. `just test tests/test_bfs.py -k fallback`)

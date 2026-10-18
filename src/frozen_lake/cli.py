@@ -1,8 +1,9 @@
 """Typer entry point for the `frozen-lake` command.
 
-Commands other than `--version`, `tui` and `episode` are placeholders until implemented.
+Commands other than `plot` are implemented; `plot` is a placeholder until implemented.
 """
 
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -232,16 +233,91 @@ def episode(
     )
 
 
-@app.command()
-def benchmark() -> None:
-    """Run a headless experiment from a TOML config."""
-    _not_implemented("benchmark")
+ConfigOption = Annotated[
+    Path, typer.Option("--config", help="Experiment configuration (TOML).", show_default=False)
+]
+
+
+def _load_experiment_config(path: Path):
+    from frozen_lake.experiments import ConfigError, load_config
+
+    try:
+        return load_config(path)
+    except ConfigError as error:
+        typer.echo(str(error), err=True)
+        raise typer.Exit(code=2) from error
+
+
+def _describe_workload(config) -> None:
+    from frozen_lake.experiments import arms, workload
+
+    load = workload(config)
+    typer.echo(
+        f"{len(config.environment.sizes)} sizes {list(config.environment.sizes)} × "
+        f"{config.experiment.maps_per_size} maps × {config.experiment.episodes_per_map} episodes "
+        f"× {load.arms} arms"
+    )
+    typer.echo("arms: " + ", ".join(arm.label for arm in arms(config)))
+    typer.echo(f"{load.episodes} episodes · {load.policy_builds} policy builds")
 
 
 @app.command()
-def validate() -> None:
-    """Validate an experiment config and its maps."""
-    _not_implemented("validate")
+def benchmark(
+    config: ConfigOption,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option(help="Folder for the results; overrides experiment.output_dir."),
+    ] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Validate and describe the experiment; run nothing.")
+    ] = False,
+) -> None:
+    """Run the whole experiment headlessly and write its raw results."""
+    experiment_config = _load_experiment_config(config)
+    _describe_workload(experiment_config)
+    if dry_run:
+        return
+
+    from frozen_lake.experiments import run_experiment
+
+    try:
+        run_dir = run_experiment(
+            experiment_config,
+            output_root=output_dir,
+            config_path=config,
+            progress=lambda message: typer.echo(message, err=True),
+        )
+    except FileExistsError as error:
+        typer.echo(f"Results folder already exists, not overwriting: {error.filename}", err=True)
+        raise typer.Exit(code=2) from error
+    typer.echo(f"results written to {run_dir}")
+
+
+@app.command()
+def validate(
+    config: Annotated[
+        Path | None, typer.Option("--config", help="Experiment configuration (TOML) to check.")
+    ] = None,
+    run: Annotated[
+        Path | None, typer.Option("--run", help="Results folder to check for completeness.")
+    ] = None,
+) -> None:
+    """Check an experiment configuration, or the results a run wrote."""
+    if (config is None) == (run is None):
+        typer.echo("Give exactly one of --config or --run.", err=True)
+        raise typer.Exit(code=2)
+    if config is not None:
+        _describe_workload(_load_experiment_config(config))
+        typer.echo("configuration is valid")
+        return
+
+    from frozen_lake.experiments import validate_run
+
+    problems = validate_run(run)
+    if problems:
+        typer.echo("results failed validation:\n- " + "\n- ".join(problems), err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"results in {run} are complete and consistent")
 
 
 @app.command()
