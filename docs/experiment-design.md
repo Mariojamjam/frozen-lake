@@ -4,14 +4,14 @@
 
 This document describes what the study measures, why, and how. It defines the decision problem, the algorithms being compared, the quantities to be estimated, and the protocol that keeps the comparison fair and reproducible. It is written to be read from top to bottom by someone who has not followed the project's planning discussions.
 
-Every setting in this document has one of three statuses:
+Every setting in this document has one of two statuses:
 
 | Status | Meaning |
 |---|---|
 | **Fixed** | Part of the study design, including every experimental setting in `configs/experiment.toml`. Changing it changes the study. |
-| **Open** | Not yet decided. It must be decided and recorded before the experiment runs. |
+| **Open** | Not yet decided. It must be decided and recorded before the experiment runs. None remain. |
 
-No result is reported here. All numbers in the worked examples are either computed from the definitions (marked *computed*) or invented to illustrate a formula (marked *illustrative*). None of them is an experimental finding.
+No result is reported here; the results are in the [research report](../REPORT.md). All numbers in the worked examples are either computed from the definitions (marked *computed*) or invented to illustrate a formula (marked *illustrative*). None of them is an experimental finding.
 
 ---
 
@@ -633,7 +633,7 @@ Configuration $x$ **dominates** $y$ if $x$ is at least as fast and at least as s
 
 Each strategy is charged its **standalone** cost (**Fixed**). Expectimax is charged for the BFS distances it needs, even if an implementation shares the distance table with the BFS policy for convenience. Otherwise Expectimax would hide part of its cost.
 
-A complementary measure, **paired-state decision time**, times each Rollout strategy on the *same* prespecified set of states. It isolates the cost per decision from the length of the episodes in which those decisions happen.
+A complementary measure, **paired-state decision time**, compares the Rollout strategies on the *same* states. It isolates the cost per decision from the length of the episodes in which those decisions happen. It is computed from the logged decisions, on the states both strategies visited on a map, rather than on a prespecified set of states timed separately; the states compared are therefore those the agents reached.
 
 ### 8.2 Complexity
 
@@ -710,7 +710,7 @@ The seed is the first 8 bytes of the SHA-256 hash of that string, shifted to 63 
 - Runs are headless: no rendering, animation, or progress output inside timed sections.
 - Policy build, decision, and episode times are separate measurements.
 - Each base policy is built 30 times per map, from scratch, after one untimed warm-up build; every repeat is recorded and summaries use the median (**Fixed**).
-- The experiment runs sequentially, in one process, on one machine, whose hardware and software are recorded (**Open**: the machine).
+- The experiment runs sequentially, in one process, on one machine, whose hardware and software are recorded. The main run used an AMD Ryzen 5 5500U (a laptop CPU), inside the project's Dev Container with Python 3.12, from a clean checkout of the commit recorded in its `metadata.json`, alongside the package versions (**Fixed**).
 - No correction for "interpreter overhead" is applied after the fact.
 
 Maps, seeds, decisions, and outcomes are expected to reproduce exactly. Timings are not expected to reproduce across machines or system load.
@@ -729,11 +729,13 @@ Results are reported **per map size**. Sizes differ in difficulty, and a single 
 
 ### 11.2 Uncertainty
 
-Uncertainty must respect the two levels of variation: episodes within a map, and maps within a size. The planned approach is a **cluster bootstrap**, computed in the analysis from the raw data, not by the experiment runner (**Open**: final procedure and number of resamples):
+Uncertainty must respect the two levels of variation: episodes within a map, and maps within a size. The approach is a **cluster bootstrap**, computed in the analysis from the raw data, not by the experiment runner:
 1. resample maps with replacement;
 2. resample episodes within each selected map;
 3. recompute the estimate;
 4. repeat, and report percentile intervals.
+
+The settings are 2,000 resamples and 95% percentile intervals, with the bootstrap seed of each size derived from the master seed (§10.3) (**Fixed**). These settings were recorded after the main run; they are conventional choices and depend on no result. One resample is applied to every arm of a size at once, so the pairing between arms survives the resampling and the same draws give intervals for paired differences. Success rate and amortized time get intervals in the same way; the exact reference gets success intervals only (§5.7).
 
 **Example (computed).** The standard error of a single map's success rate from $E$ episodes is $\sqrt{p(1-p)/E}$. At $p = 0.5$, it is $0.112$ for $E = 20$ and $0.091$ for $E = 30$. A one-map difference of a few percentage points is therefore well within noise. With only five maps per size, intervals are approximate, and the report describes them as such.
 
@@ -741,7 +743,7 @@ Uncertainty must respect the two levels of variation: episodes within a map, and
 
 Decision times are skewed: a few long decisions occur when trajectories survive long. Medians and spread (for example interquartile ranges) are reported along with means. Build and online costs are reported separately before they are combined into amortized cost.
 
-### 11.4 Planned figures
+### 11.4 Figures
 
 | Figure | Shows | Answers |
 |---|---|---|
@@ -751,9 +753,10 @@ Decision times are skewed: a few long decisions occur when trajectories survive 
 | D | Policy build time vs map size | H2 |
 | E | Search work vs map size, per algorithm and counter | H2, H5 |
 | F | Algorithm-specific memory diagnostics (queue, stack, cache) | H2 |
-| G (optional) | Paired-state decision time | Cost without the episode-length confound |
+| G | Decision time of EXP-RO over BFS-RO on the states both visited | Cost without the episode-length confound |
+| H | Amortized time difference between EXP-RO and BFS-RO as $R$ grows | How the answer depends on $R$ (§7.3) |
 
-All figures are generated from the saved raw data, never by re-running agents.
+All figures are generated from the saved raw data, never by re-running agents. `frozen-lake plot` writes them to the run's `analysis/figures/` folder; those of the study's run are in `results/canonical/experiment-1/analysis/figures/`.
 
 ---
 
@@ -790,7 +793,7 @@ There is a single experiment, described by `configs/experiment.toml`. Every sett
 
 ### 12.2 Run and validate
 
-`frozen-lake benchmark --config configs/experiment.toml` generates and saves every map, builds and times every base policy, and plays every arm on the same maps and episode seeds, headless and with no parameter changes during the run. The results go to a new folder named after the start time and the configuration hash; an existing folder is never overwritten. Before anything is analyzed, the written data are validated:
+`frozen-lake benchmark --config configs/experiment.toml` generates and saves every map, builds and times every base policy, and plays every arm on the same maps and episode seeds, headless and with no parameter changes during the run. The results go to a new folder named after the start time and the configuration hash; an existing folder is never overwritten. The run the study reports is kept in `results/canonical/experiment-1/`. Its saved configuration names `results` as the output folder, where `configs/experiment.toml` now names `results/generated`; the output folder affects no measurement, but it is part of the configuration hash, so the two hashes differ. Before anything is analyzed, the written data are validated:
 - every map, episode and arm is present, and no row is duplicated;
 - every arm of an episode shares the same episode seed;
 - every episode's decisions add up to its steps;
@@ -810,7 +813,7 @@ $$
 S \times M \times E \times (2 + 2L + 2) = 5 \times 5 \times 30 \times 18 = 13{,}500.
 $$
 
-Each Rollout episode contains thousands to hundreds of thousands of simulated transitions (§8.2), so the number of simulated transitions predicts total cost better than the episode count. Measured before fixing the protocol, the largest maps dominate: on a 12×12 lake, one episode of each sampled budget from $N = 10$ to $N = 800$ takes about 4 s in total per Rollout strategy. The whole experiment is expected to take about half an hour on the development machine; `frozen-lake benchmark --dry-run` prints the exact matrix before running.
+Each Rollout episode contains thousands to hundreds of thousands of simulated transitions (§8.2), so the number of simulated transitions predicts total cost better than the episode count. Measured before fixing the protocol, the largest maps dominate: on a 12×12 lake, one episode of each sampled budget from $N = 10$ to $N = 800$ takes about 4 s in total per Rollout strategy. The main run took 34 minutes on the machine recorded in §10.4; `frozen-lake benchmark --dry-run` prints the exact matrix before running.
 
 ---
 
@@ -875,7 +878,8 @@ It cannot establish that any strategy is universally better. It also cannot esta
 | Amortization denominator $R$ | Raw times recorded; $R = E$ in the analysis, plus a curve over $R$ | Fixed |
 | Random streams | Map, real, and simulation streams kept separate | Fixed |
 | Seed derivation | SHA-256 of a canonical description, scheme `v1` | Fixed |
-| Uncertainty | Cluster bootstrap over maps and episodes, in the analysis | Open (procedure) |
-| Measurement platform | One recorded machine, sequential runs | Open (machine) |
+| Uncertainty | Cluster bootstrap over maps and episodes, in the analysis; 2,000 resamples, 95% percentile intervals, one resample shared by all arms | Fixed |
+| Measurement platform | One recorded machine, sequential runs; AMD Ryzen 5 5500U in the Dev Container | Fixed |
+| Paired-state decision time | From logged decisions, on the states both Rollout strategies visited | Fixed |
 
-Every **Open** entry is decided and recorded before the experiment runs. Any later change that affects the meaning of a measurement is a new protocol version (§12.3), and data collected under different protocol versions are not mixed.
+No entry is **Open**: every setting was decided before its results were interpreted. Any later change that affects the meaning of a measurement is a new protocol version (§12.3), and data collected under different protocol versions are not mixed.
