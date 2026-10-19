@@ -1,7 +1,4 @@
-"""Typer entry point for the `frozen-lake` command.
-
-Commands other than `plot` are implemented; `plot` is a placeholder until implemented.
-"""
+"""Typer entry point for the `frozen-lake` command."""
 
 from pathlib import Path
 from typing import Annotated
@@ -58,11 +55,6 @@ HorizonOption = Annotated[
         "and never more than the real steps left.",
     ),
 ]
-
-
-def _not_implemented(command: str) -> None:
-    typer.echo(f"`{command}` is not implemented yet.", err=True)
-    raise typer.Exit(code=2)
 
 
 @app.command()
@@ -321,6 +313,33 @@ def validate(
 
 
 @app.command()
-def plot() -> None:
-    """Render figures from a persisted results directory."""
-    _not_implemented("plot")
+def plot(
+    run: Annotated[Path, typer.Option("--run", help="Results folder of a finished benchmark.")],
+    output_dir: Annotated[
+        Path | None,
+        typer.Option(help="Folder for the figures and tables; defaults to <run>/analysis."),
+    ] = None,
+    resamples: Annotated[
+        int, typer.Option(min=100, help="Bootstrap resamples for every interval.")
+    ] = 2000,
+    seed: Annotated[
+        int | None,
+        typer.Option(help="Bootstrap seed; defaults to one derived from the master seed."),
+    ] = None,
+) -> None:
+    """Analyze a finished run: intervals, tables and figures, from its saved results."""
+    from frozen_lake.analysis import InvalidResults, analyze_run
+
+    try:
+        result = analyze_run(
+            run,
+            output_dir,
+            resamples=resamples,
+            seed=seed,
+            progress=lambda message: typer.echo(message, err=True),
+        )
+    except InvalidResults as error:
+        typer.echo("results failed validation:\n- " + "\n- ".join(error.problems), err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(f"{len(result.figures)} figures and {len(result.tables)} tables")
+    typer.echo(f"analysis written to {result.output_dir}")
