@@ -261,22 +261,22 @@ def build_time_vs_size(builds: Sequence[BuildSummary]) -> Figure:
             marker=MARKERS[base], ms=6, capsize=3, lw=1.3, color=color,
             label=f"{base.value}: median and IQR of all timed builds",
         )  # fmt: skip
-        for b in rows:
-            ax.scatter(
-                [b.size + shift] * len(b.per_map_median_ms),
-                b.per_map_median_ms,
-                s=14,
-                color=color,
-                alpha=0.35,
-                linewidths=0,
-                label=f"{base.value}: map medians",
-            )
+        # One scatter for every size at once, so the legend gets one entry per base policy.
+        ax.scatter(
+            [b.size + shift for b in rows for _ in b.per_map_median_ms],
+            [ms for b in rows for ms in b.per_map_median_ms],
+            s=14,
+            color=color,
+            alpha=0.35,
+            linewidths=0,
+            label=f"{base.value}: map medians",
+        )
     ax.set_yscale("log")
     ax.set_xticks(sizes, labels=[f"{n}×{n}" for n in sizes])
     ax.set_xlabel("map size", fontsize=9)
     ax.set_ylabel("policy build time (ms)", fontsize=9)
     ax.grid(alpha=0.25)
-    ax.legend(fontsize=7.5, frameon=False)
+    ax.legend(fontsize=7.5, frameon=False, loc="upper left")
     fig.suptitle("D · Policy build time vs map size", fontsize=10)
     return fig
 
