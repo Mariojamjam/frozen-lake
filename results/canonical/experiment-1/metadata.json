@@ -1,0 +1,43 @@
+{
+  "command": [
+    "/home/vscode/.venvs/frozen-lake/bin/frozen-lake",
+    "benchmark",
+    "--config",
+    "configs/experiment.toml"
+  ],
+  "config_path": "configs/experiment.toml",
+  "config_sha256": "c1371dcbc8cbad1f6316b7f927aaa7aace6ceaa933d795a90f2065814c855cec",
+  "cpu": "AMD Ryzen 5 5500U with Radeon Graphics",
+  "duration_s": 2054.258842,
+  "finished_utc": "2026-10-18T16:42:54.992889+00:00",
+  "git_commit": "e4c19036673bcafb3ed3050c03d809933a529eaa",
+  "git_dirty": false,
+  "machine": "x86_64",
+  "maps_sha256": "db799fc842b0599a61fdf1a40bfbdb3db38e80cc34f6ee00aedbfac904456a87",
+  "packages": {
+    "frozen-lake": "0.1.0",
+    "gymnasium": "1.4.0",
+    "matplotlib": "3.11.2",
+    "numpy": "2.5.4",
+    "textual": "8.2.8",
+    "typer": "0.27.3"
+  },
+  "platform": "Linux-7.2.7-arch1-1-x86_64-with-glibc2.36",
+  "python": "3.12.11 (main, Jul  1 2025, 05:29:09) [GCC 12.2.0]",
+  "seed_scheme": "v1",
+  "started_utc": "2026-10-18T16:08:40.734047+00:00",
+  "units": {
+    "*_ms": "milliseconds",
+    "*_ns": "nanoseconds",
+    "amortized_ms_per_episode": "median build time / episodes per map + mean agent time",
+    "estimator": "sampled or exact for Rollout strategies; blank for base-only strategies",
+    "rollout_n": "simulated trajectories per candidate action; blank where it does not apply",
+    "success": "1 if the goal was reached, else 0"
+  },
+  "workload": {
+    "arms": 18,
+    "episodes": 13500,
+    "maps": 25,
+    "policy_builds": 1550
+  }
+}

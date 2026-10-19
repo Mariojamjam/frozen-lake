@@ -1,0 +1,41 @@
+{
+  "environment": {
+    "frozen_probability": 0.9,
+    "max_steps_multiplier": 4,
+    "sizes": [
+      4,
+      6,
+      8,
+      10,
+      12
+    ],
+    "success_rate": 0.8
+  },
+  "experiment": {
+    "episodes_per_map": 30,
+    "maps_per_size": 5,
+    "master_seed": 2026,
+    "output_dir": "results",
+    "write_decisions": true
+  },
+  "policies": {
+    "build_repeats": 30,
+    "build_warmup": 1,
+    "discount_factor": 1.0,
+    "expectimax_depth": 6,
+    "heuristic_beta": 0.9
+  },
+  "rollout": {
+    "exact_reference": true,
+    "horizon_multiplier": 2,
+    "samples_per_action": [
+      10,
+      25,
+      50,
+      100,
+      200,
+      400,
+      800
+    ]
+  }
+}

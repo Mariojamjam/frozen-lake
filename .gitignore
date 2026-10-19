@@ -10,9 +10,10 @@ dist/
 .pytest_cache/
 .ruff_cache/
 
-# Experiment outputs (raw runs are archived explicitly, not committed by default)
+# Experiment outputs: new runs go to results/generated/ and stay local; runs promoted to
+# results/canonical/ are part of the study and committed
 results/*
-!results/.gitkeep
+!results/canonical/
 
 # Editors / OS
 .vscode/*
