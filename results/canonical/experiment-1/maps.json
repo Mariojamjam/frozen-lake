@@ -1,0 +1,452 @@
+[
+  {
+    "frozen_probability": 0.9,
+    "index": 0,
+    "map_id": "4-0",
+    "reachable": true,
+    "rows": [
+      "SFFF",
+      "FFFF",
+      "FFFF",
+      "FFFG"
+    ],
+    "seed": 5958102952687259148,
+    "size": 4
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 1,
+    "map_id": "4-1",
+    "reachable": true,
+    "rows": [
+      "SFFF",
+      "FFFF",
+      "HFFF",
+      "FFFG"
+    ],
+    "seed": 1337204949029505143,
+    "size": 4
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 2,
+    "map_id": "4-2",
+    "reachable": true,
+    "rows": [
+      "SFFF",
+      "FFFF",
+      "FFFF",
+      "HFFG"
+    ],
+    "seed": 2616478950170092160,
+    "size": 4
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 3,
+    "map_id": "4-3",
+    "reachable": true,
+    "rows": [
+      "SFFF",
+      "FFFF",
+      "FFFF",
+      "HFFG"
+    ],
+    "seed": 1828187244560189517,
+    "size": 4
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 4,
+    "map_id": "4-4",
+    "reachable": true,
+    "rows": [
+      "SFHF",
+      "FFFF",
+      "FFFF",
+      "HHFG"
+    ],
+    "seed": 6954601075823998217,
+    "size": 4
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 0,
+    "map_id": "6-0",
+    "reachable": true,
+    "rows": [
+      "SFFFFF",
+      "FFFFFF",
+      "FHFFFF",
+      "FFFFHF",
+      "FFFFFH",
+      "FFFFFG"
+    ],
+    "seed": 6299549060498745003,
+    "size": 6
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 1,
+    "map_id": "6-1",
+    "reachable": true,
+    "rows": [
+      "SFFFHF",
+      "FFFFFF",
+      "FFFFFF",
+      "FFFFFF",
+      "FFFFHF",
+      "FFHFFG"
+    ],
+    "seed": 2134350134317618765,
+    "size": 6
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 2,
+    "map_id": "6-2",
+    "reachable": true,
+    "rows": [
+      "SHFFHF",
+      "FFFHFF",
+      "FFFFFF",
+      "FFHFFF",
+      "FFFFFF",
+      "FFFFFG"
+    ],
+    "seed": 7316444104904954318,
+    "size": 6
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 3,
+    "map_id": "6-3",
+    "reachable": true,
+    "rows": [
+      "SFFFFF",
+      "FFFFFF",
+      "FFFHFF",
+      "FFHFFF",
+      "FFFFFF",
+      "FFFFFG"
+    ],
+    "seed": 4464636808268780159,
+    "size": 6
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 4,
+    "map_id": "6-4",
+    "reachable": true,
+    "rows": [
+      "SFFFFF",
+      "FFFFFF",
+      "FFHFFF",
+      "FFFFFF",
+      "FFFFFF",
+      "FFFFFG"
+    ],
+    "seed": 1921212045395997175,
+    "size": 6
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 0,
+    "map_id": "8-0",
+    "reachable": true,
+    "rows": [
+      "SFFFFFFF",
+      "FFFFFFFF",
+      "FFFFFHFF",
+      "HFHFFFHF",
+      "FFFFFFFF",
+      "FFFFFFFF",
+      "FHFFFFFF",
+      "FFFHFFFG"
+    ],
+    "seed": 151277895352232496,
+    "size": 8
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 1,
+    "map_id": "8-1",
+    "reachable": true,
+    "rows": [
+      "SFFFFFFH",
+      "FFFFFFFF",
+      "FFFFFFFF",
+      "FFFFFFFF",
+      "FFFFFFFF",
+      "FHFFHFFF",
+      "FFHFFFFF",
+      "FFFFFHFG"
+    ],
+    "seed": 6936621135710600510,
+    "size": 8
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 2,
+    "map_id": "8-2",
+    "reachable": true,
+    "rows": [
+      "SFFFFFFF",
+      "FFFFFFFF",
+      "FFFFFFFF",
+      "FFFFFFFF",
+      "FFFFFFFF",
+      "FHFFFFFF",
+      "FFFFFFFF",
+      "FFFFFFFG"
+    ],
+    "seed": 3686805352524598337,
+    "size": 8
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 3,
+    "map_id": "8-3",
+    "reachable": true,
+    "rows": [
+      "SHFFFFFF",
+      "FFFFFFFF",
+      "FFFFFFHF",
+      "FFFFFFFF",
+      "FFHFFFFF",
+      "FFFFHFFF",
+      "FFFFFFFF",
+      "FFFHFFFG"
+    ],
+    "seed": 4376709142076249608,
+    "size": 8
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 4,
+    "map_id": "8-4",
+    "reachable": true,
+    "rows": [
+      "SFFFHFFF",
+      "FFFFFFFF",
+      "FFFFFFFF",
+      "FFHFFFFF",
+      "HFFFFFFF",
+      "FFHFFFFF",
+      "FFFFFFFF",
+      "FFFFFFHG"
+    ],
+    "seed": 5952940231236751935,
+    "size": 8
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 0,
+    "map_id": "10-0",
+    "reachable": true,
+    "rows": [
+      "SFFFFFHFFF",
+      "FFFHFFFFFF",
+      "FHFFFFFFFF",
+      "FFFFHFFFFF",
+      "FFFFFFHFFF",
+      "HHFFFFFFHF",
+      "FFFFFFFFFF",
+      "FFFFFFFFFF",
+      "FFHFFFFFFF",
+      "FFFFFFFFFG"
+    ],
+    "seed": 4151177678725561169,
+    "size": 10
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 1,
+    "map_id": "10-1",
+    "reachable": true,
+    "rows": [
+      "SFFFFFFFFF",
+      "FFFFHFFFHF",
+      "FFFFFFFFFF",
+      "FFFFHFFFFF",
+      "FFFFFHFFFH",
+      "FHFFFFFFFF",
+      "FFFFFFFFHF",
+      "FFFFFHFFHH",
+      "FFFFFFFFFF",
+      "FHFFFFFFFG"
+    ],
+    "seed": 4573548483103639394,
+    "size": 10
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 2,
+    "map_id": "10-2",
+    "reachable": true,
+    "rows": [
+      "SFHFFFFFFF",
+      "FFFFFFHFFF",
+      "FFHFFHFFFF",
+      "FFFFFFFFFF",
+      "FFFFFFHFFF",
+      "FFFFFFFFFF",
+      "FFFFFFFFFF",
+      "FFHFFFFFFF",
+      "FFFFFFFFFF",
+      "FFFFFFFFFG"
+    ],
+    "seed": 1916226903054599323,
+    "size": 10
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 3,
+    "map_id": "10-3",
+    "reachable": true,
+    "rows": [
+      "SFFFFFFFFF",
+      "FFFHFHFFFF",
+      "FFHFFFFFFF",
+      "FHFFFFFFFF",
+      "FFFFFFFFFF",
+      "HFFFFFFFFF",
+      "FFFFFFFFFF",
+      "FFFFFHHFFF",
+      "FFFFFFFFFF",
+      "HFFFFFFFFG"
+    ],
+    "seed": 5830604248350543944,
+    "size": 10
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 4,
+    "map_id": "10-4",
+    "reachable": true,
+    "rows": [
+      "SFFFFFFFFF",
+      "FFFFFFFHFH",
+      "FFFFFHFFFF",
+      "FHFFFFFHFF",
+      "FFFFFFFFFF",
+      "FFFFFFFFHF",
+      "FFFFHFFHFF",
+      "FFFHFFFFFF",
+      "FFFFFFFHFF",
+      "FHFFFFFFFG"
+    ],
+    "seed": 2297696680189391164,
+    "size": 10
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 0,
+    "map_id": "12-0",
+    "reachable": true,
+    "rows": [
+      "SFFHFFFFFFHH",
+      "FFFFHFFFHFFF",
+      "FFFFFFFHFHFF",
+      "FFFFFFFFFFFF",
+      "FFFFFFFFFFFF",
+      "FHFFFFFFHFFF",
+      "FFFFFFFFFFFF",
+      "FFFFFHHFFHFF",
+      "FFFFFFFFFFFF",
+      "FFFFFFFFFHHH",
+      "FFHFFFFFFFFF",
+      "FFFFHFFFFFFG"
+    ],
+    "seed": 4121487896546378797,
+    "size": 12
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 1,
+    "map_id": "12-1",
+    "reachable": true,
+    "rows": [
+      "SFFFFHFFFFFF",
+      "FFFFFHFFFFHF",
+      "FFFFFFHFFFFF",
+      "FFFFHFFFFFFF",
+      "HFFFHFFFFFFF",
+      "FFFFFFHFFFFF",
+      "FFFHFFFFFFFF",
+      "FFFFFFFFFFFF",
+      "FHFFFFFFFFFF",
+      "FFFFFFFFFFHF",
+      "FFFFFFFFHFHF",
+      "HFFFFHFFFFFG"
+    ],
+    "seed": 3605859042846291031,
+    "size": 12
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 2,
+    "map_id": "12-2",
+    "reachable": true,
+    "rows": [
+      "SFFFFFFFFFFF",
+      "FFHFFFFFFFHF",
+      "FFFFHFFFFFFF",
+      "FHFFFHFHFFFF",
+      "FFFFHFFFFFFF",
+      "FFFFFFFFFFFF",
+      "FFFFFFFFFFFF",
+      "FFHFFFFFFFFF",
+      "FFFHFFFFFFFF",
+      "FFFFFFFFHFFF",
+      "FHFHFFFFHFFF",
+      "HFFFFFFFHFFG"
+    ],
+    "seed": 1613970732416319034,
+    "size": 12
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 3,
+    "map_id": "12-3",
+    "reachable": true,
+    "rows": [
+      "SFFFFFFFFFFH",
+      "FFFFFFFFFFFF",
+      "FFFFFFFFFFFF",
+      "HFHFFFFFFFFH",
+      "FFFFFFFHFFFF",
+      "FFHFHFFFFFFF",
+      "FFFFFFFFFFFF",
+      "FFHFFFFFFFFH",
+      "HFFFFFFFFFFH",
+      "FHFFFFFFFFFF",
+      "HFFFFFFFFFHF",
+      "HFFFFFFFFFFG"
+    ],
+    "seed": 7879713062922914435,
+    "size": 12
+  },
+  {
+    "frozen_probability": 0.9,
+    "index": 4,
+    "map_id": "12-4",
+    "reachable": true,
+    "rows": [
+      "SFFFFFFFFFFF",
+      "FFFFHFFHFFFF",
+      "FFFFFFFHFFFH",
+      "FHFFFFFFFFFF",
+      "FHFFFFFFFHHF",
+      "FFFFFFFFHFFF",
+      "FFFFHFFFFFHF",
+      "HFFFFFFFFFFF",
+      "FFFFFFFFHFFF",
+      "FFFFFFFFFHFF",
+      "FHFFFFFFFFFF",
+      "HFFFFFFFFFFG"
+    ],
+    "seed": 3294865629464500269,
+    "size": 12
+  }
+]

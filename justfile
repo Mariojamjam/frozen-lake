@@ -40,6 +40,11 @@ validate:
 benchmark config="configs/experiment.toml" output_dir="" *args:
     uv run frozen-lake benchmark --config {{quote(config)}} {{ if output_dir != "" { "--output-dir " + quote(output_dir) } else { "" } }} {{args}}
 
+# Analyze a finished run: intervals, tables and figures (e.g. `just plot results/<folder>`)
+[group('experiment')]
+plot run *args:
+    uv run frozen-lake plot --run {{quote(run)}} {{args}}
+
 # --- quality -------------------------------------------------------------------
 
 # Run tests; extra arguments go to pytest (e.g. `just test tests/test_bfs.py -k fallback`)

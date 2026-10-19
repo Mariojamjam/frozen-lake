@@ -37,6 +37,7 @@ Everything you can run in this project: what each command does, when to use it, 
 | Check the experiment configuration | `uv run frozen-lake validate --config configs/experiment.toml` | `just validate` |
 | Run the whole experiment | `uv run frozen-lake benchmark --config configs/experiment.toml` | `just benchmark` |
 | Check a finished run | `uv run frozen-lake validate --run results/<folder>` | — |
+| Analyze a finished run: tables and figures | `uv run frozen-lake plot --run results/<folder>` | `just plot results/<folder>` |
 | See the installed version | `uv run frozen-lake --version` | — |
 
 ---
@@ -114,6 +115,7 @@ frozen-lake [--version] [--help] COMMAND [OPTIONS]
 | [`episode`](#44-episode-one-headless-episode) | Play one episode without an interface and print it |
 | [`validate`](#45-validate-check-a-configuration-or-a-run) | Check an experiment configuration, or the results of a run |
 | [`benchmark`](#46-benchmark-run-the-experiment) | Run the whole experiment headless and write its raw results |
+| [`plot`](#47-plot-analyze-a-finished-run) | Turn a finished run into intervals, tables and figures |
 
 Every command accepts `--help`, which lists its options and their defaults.
 
@@ -382,7 +384,16 @@ It prints the experiment it is about to run, then one progress line per finished
 | `--output-dir DIR` | Folder for the results, overriding `experiment.output_dir` |
 | `--dry-run` | Validate and describe the experiment, then stop without running |
 
-Results go to a new folder named after the start time and the first 8 characters of the configuration hash, for example `results/20261018-125816-7307f7ed/`. If that folder already exists, `benchmark` stops instead of overwriting it.
+Results go to a new folder named after the start time and the first 8 characters of the configuration hash, for example `results/generated/20261018-125816-7307f7ed/`. If that folder already exists, `benchmark` stops instead of overwriting it.
+
+`results/` has two parts:
+
+| Folder | Contents | In git |
+|---|---|---|
+| `results/generated/` | Every new run, named automatically | No (ignored) |
+| `results/canonical/` | The runs the study reports, under a chosen name, for example `results/canonical/experiment-1/` | Yes |
+
+To make a run canonical, move its folder from `generated/` to `canonical/` under its new name, then regenerate its analysis with `plot`. Renaming is safe: `validate` and `plot` do not depend on the folder name, and the run's provenance (configuration hash, commit, map hashes) stays in its `metadata.json`.
 
 #### The configuration file
 
@@ -436,12 +447,77 @@ uv run frozen-lake benchmark --config configs/experiment.toml              # the
 uv run frozen-lake benchmark --config tests/data/tiny.toml --output-dir /tmp/runs   # a few seconds
 ```
 
-### 4.7 Exit codes and errors
+### 4.7 `plot`: analyze a finished run
+
+```bash
+uv run frozen-lake plot --run results/<folder> [--output-dir DIR] [--resamples N] [--seed S]
+```
+
+**What it does.** Reads the raw results of a finished `benchmark` and turns them into estimates with uncertainty, tables and figures. It first runs the same checks as `validate --run` and refuses a damaged folder. It never runs an agent again and never times anything, so it is safe to repeat and to change.
+
+**When to use it.** After `benchmark`, to get the results the research question needs: success rate against amortized compute time, with intervals.
+
+| Option | Meaning |
+|---|---|
+| `--run DIR` | The results folder of a finished benchmark (required) |
+| `--output-dir DIR` | Where to write; defaults to `<run>/analysis`. Files of an earlier analysis with the same names are replaced |
+| `--resamples N` | Bootstrap resamples for every interval (`≥ 100`, default 2000) |
+| `--seed S` | Bootstrap seed; by default one derived from the experiment's master seed, so the same run always gives the same intervals |
+
+#### How the numbers are made
+
+- **Per map first.** Each quantity is computed on every map and then averaged over the maps of a size, so a map counts once however many episodes it played.
+- **Uncertainty.** A cluster bootstrap: resample maps with replacement, then resample episodes within each chosen map, recompute, repeat, and report the 95 % percentile interval. One resample is applied to every arm at once, so the pairing between arms (same maps, same episode seeds) is kept, and differences between arms get honest intervals too.
+- **Amortized time per episode.** The median build time of a map's base policy divided by `R`, plus the mean agent time of that map's episodes. `R` is the number of episodes that share a build; the analysis uses `R = E` (`experiment.episodes_per_map`) and figure H shows other values.
+- **Paired difference.** `EXP-RO` minus `BFS-RO` at the same `N`, for success rate and for amortized time.
+- **Pareto frontier.** An arm is on the observed frontier of a size if no other arm is at least as fast and at least as successful, and better on one of the two. The exact reference is left out: its cost is not comparable.
+
+#### What it writes
+
+```text
+<run>/analysis/
+├── analysis.json       resamples, level, seed, R and hashes of the run it analyzed
+├── figures/            figure_a_….png to figure_h_….png
+└── tables/             the numbers behind the figures
+```
+
+| Figure | Shows |
+|---|---|
+| A | Success rate against amortized time per episode, one panel per size, with intervals and the observed frontier |
+| B | Success rate against `N`, with base-only and exact-reference lines |
+| C | Decision time (median and interquartile range) and simulated transitions against `N` |
+| D | Policy build time against map size |
+| E | Search work against map size: states evaluated, successors examined, cache hits |
+| F | Each algorithm's own memory measure: BFS queue peak, Expectimax recursion depth and cache entries |
+| G | `EXP-RO` over `BFS-RO` decision time on states both strategies visited (needs logged decisions) |
+| H | The amortized-time gap between `EXP-RO` and `BFS-RO` as `R` varies |
+
+| Table | One row per |
+|---|---|
+| `arms.csv` | size × arm: success, amortized time and their intervals, frontier membership |
+| `paired_differences.csv` | size × `N`: `EXP-RO` minus `BFS-RO`, with intervals |
+| `amortization_sensitivity.csv` | size × `N` × `R`: the gap plotted in figure H |
+| `policy_builds.csv` | size × base policy: build-time quartiles and mean search counters |
+| `decision_times.csv` | size × arm: decision-time quartiles (needs logged decisions) |
+| `shared_state_decision_time.csv` | size × `N`: the ratio plotted in figure G (needs logged decisions) |
+
+Blank still means "does not apply". Two things to keep in mind when reading the figures:
+- Figure G reuses the decisions already logged, so the states are those the agents happened to visit. It is not the dedicated paired-state timing on a prespecified set of states that the design document describes.
+- Without logged decisions (`experiment.write_decisions = false`) figure G and `decision_times.csv` are skipped, and the top row of figure C shows mean agent time per episode instead, which also depends on episode length.
+
+#### Examples
+
+```bash
+uv run frozen-lake plot --run results/canonical/experiment-1
+uv run frozen-lake plot --run results/canonical/experiment-1 --output-dir /tmp/figs --resamples 5000
+```
+
+### 4.8 Exit codes and errors
 
 | Code | Meaning |
 |---|---|
 | `0` | Success |
-| `1` | `validate --run` found problems in the results |
+| `1` | `validate --run` or `plot` found problems in the results |
 | `2` | Invalid option value, unknown strategy, invalid configuration, or an existing results folder |
 
 Invalid values are rejected before anything runs, with a message naming the problem:
@@ -523,6 +599,7 @@ Run `just` with no arguments to list them. Parameters are positional and have de
 | `just episode [size] [episode_seed] [args…]` | `frozen-lake episode --size {size} --episode-seed {episode_seed} {args}` | Defaults: size 6, episode seed 7 |
 | `just validate` | `frozen-lake validate --config configs/experiment.toml` | Check the experiment configuration |
 | `just benchmark [config] [output_dir] [args…]` | `frozen-lake benchmark --config {config} --output-dir {output_dir} {args}` | Defaults: `configs/experiment.toml`, and the config's own `output_dir` when `output_dir` is empty or omitted |
+| `just plot <run> [args…]` | `frozen-lake plot --run {run} {args}` | Analyze a finished run; figures and tables go to `<run>/analysis` |
 | `just test [args…]` | `pytest -q {args}` | e.g. `just test -k fallback -x` |
 | `just lint` | `ruff check .` and `ruff format --check .` | Changes nothing |
 | `just format` | `ruff check --fix .` and `ruff format .` | Changes files |
@@ -557,6 +634,12 @@ uv run pytest -q
 ```bash
 just format        # fix what can be fixed
 just ci            # check exactly what CI checks
+```
+
+**From the experiment to figures**
+```bash
+uv run frozen-lake benchmark --config configs/experiment.toml
+uv run frozen-lake plot --run results/<folder>      # writes results/<folder>/analysis/
 ```
 
 **Investigate a failing test**

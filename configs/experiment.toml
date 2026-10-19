@@ -23,5 +23,5 @@ exact_reference = true           # also play Rollout with exact values (N = infi
 maps_per_size = 5
 episodes_per_map = 30
 master_seed = 2026               # every map, episode and simulation seed derives from it
-output_dir = "results"
+output_dir = "results/generated"  # new runs land here; the study's runs are in results/canonical
 write_decisions = true           # one row per real decision in decision_metrics.csv

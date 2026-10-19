@@ -4,8 +4,6 @@
 
 This research investigates whether investing more computation in an agent's *initial* decision rule pays off once that rule is refined by Monte Carlo Rollout under uncertainty. The testbed is the slippery Gymnasium [`FrozenLake-v1`](https://gymnasium.farama.org/environments/toy_text/frozen_lake/) environment, where every intended move can go wrong.
 
-> **Status:** early development. The validated environment model, the BFS and depth-limited Expectimax base policies, Monte Carlo Rollout over either of them, headless episodes, the terminal explorer and the experiment runner are in place.
-
 ## Motivation
 
 Rollout is a simple and widely used policy-improvement technique: before acting, simulate what would happen after each possible action if a *base policy* took over afterwards, then pick the most promising action. The quality of those simulations depends on the base policy, and so does their cost.
@@ -30,6 +28,20 @@ These are open questions to be tested, not expected results.
 
 Conclusions will be limited to the measured settings: environment parameters, maps, budgets, heuristic and hardware.
 
+## Findings
+
+The study's run covers lakes from 4×4 to 12×12, five maps per size, 30 paired episodes per map and seven Rollout budgets, from `N = 10` to `N = 800` trajectories per action: 13,500 real episodes. In brief:
+
+- **The base policy matters more than the sampling budget.** With the same `N`, Rollout over Expectimax succeeds more often than Rollout over BFS, and the gap grows with the lake: on 12×12 lakes it ranges from 21 to 43 percentage points. It narrows as `N` grows, since enough samples correct much of a weak base policy.
+- **The cost of a better base is indirect.** Building the Expectimax policy costs about five times as much as BFS, but only a few milliseconds. The larger cost comes later: simulations that follow the safer policy survive longer, so each Rollout decision over Expectimax costs up to 1.8 times as much.
+- **The best trade-offs need little or no Rollout.** Expectimax alone is on the observed Pareto frontier of success versus time at every size; Rollout over BFS never is. A small budget can even make Rollout worse than its own base policy.
+
+![Success rate against amortized time per episode, per map size](results/canonical/experiment-1/analysis/figures/figure_a_success_vs_amortized_time.png)
+
+*Success rate against amortized computation time per episode, one panel per lake size. Better is up and to the left; circled points are on the observed Pareto frontier.*
+
+The full analysis, with every figure, the paired comparisons, their uncertainty and the limitations, is in **[REPORT.md](REPORT.md)**.
+
 ## Approach
 
 The agent moves on an `n × n` grid of frozen tiles (`F`), holes (`H`), a start (`S`) and a goal (`G`). Movement is stochastic: the intended direction succeeds with probability **0.80**, and the agent slips to each perpendicular direction with probability **0.10**. Reaching the goal yields reward 1; every other transition yields 0.
@@ -41,7 +53,7 @@ Two **base policies** are precomputed once per map as state → action tables:
 | **BFS** | Reverse breadth-first search from the goal gives shortest deterministic distances; each state moves toward a neighbor with the smallest distance. | No |
 | **Depth-limited Expectimax** | MAX nodes (agent actions) alternate with CHANCE nodes (probability-weighted outcomes), memoized by `(state, remaining_depth)`. Non-terminal leaves are scored with the heuristic `h(s) = β^d_BFS(s, G)`. | Yes |
 
-A single shared **Monte Carlo Rollout** then improves either policy online: at every real state, it tries each of the four actions once, follows the base policy for the rest of `N` simulated trajectories, and picks the action with the highest estimated return. When estimates tie, it keeps the base policy's action.
+A single shared **Monte Carlo Rollout** then improves either policy online: at every real state, it tries each of the four actions in `N` simulated trajectories, each taking that action first and following the base policy afterwards, and picks the action with the highest average return. When estimates tie, it keeps the base policy's action. As a reference, the same Rollout is also played with exact action values, computed from the known transition probabilities: the limit of an infinite `N`.
 
 This yields four experimental strategies:
 
@@ -53,14 +65,6 @@ This yields four experimental strategies:
 | `EXP-RO` | Rollout over the Expectimax policy |
 
 The primary metric is **success rate versus amortized compute time per episode**. Supporting metrics are policy build time, paired-state decision time, simulated transitions, and search-specific counters such as visited states, queue peak, cache hits and recursion depth.
-
-## Planned features
-
-- BFS and Expectimax planners written from scratch, not imported from a search library.
-- One reusable, planner-agnostic Monte Carlo Rollout implementation.
-- A **Textual** terminal UI to step through episodes, compare strategies and inspect per-action estimates.
-- A headless, reproducible benchmark runner driven by TOML configs, with seeded maps.
-- Raw CSV/JSON results, Matplotlib figures and a short Markdown research report.
 
 ## Requirements
 
@@ -79,7 +83,7 @@ uv sync --locked
 uv run frozen-lake --help
 ```
 
-Every command, option, key and shortcut is documented in [`docs/commands.md`](docs/commands.md). The design of the study is described in [`docs/experiment-design.md`](docs/experiment-design.md).
+For the command guide and the study design, see [Documentation](#documentation).
 
 ### Explore the lake
 
@@ -107,7 +111,20 @@ uv run frozen-lake benchmark --config configs/experiment.toml --dry-run  # descr
 uv run frozen-lake benchmark --config configs/experiment.toml            # run it
 ```
 
-`configs/experiment.toml` describes the whole experiment: lake sizes, maps, episodes, Rollout sample counts and the Expectimax settings. `benchmark` generates every map, builds and times each base policy, plays every strategy on the same maps and episode seeds, and writes raw CSV results, a summary and the run's metadata to a new folder under `results/`, then checks them for completeness.
+`configs/experiment.toml` describes the whole experiment: lake sizes, maps, episodes, Rollout sample counts and the Expectimax settings. `benchmark` generates every map, builds and times each base policy, plays every strategy on the same maps and episode seeds, and writes raw CSV results, a summary and the run's metadata to a new folder under `results/generated/`, then checks them for completeness.
+
+The study's run is kept in [`results/canonical/experiment-1/`](results/canonical/experiment-1/): its configuration, maps, raw CSV results, metadata, and the tables and figures in `analysis/`. To check it and regenerate the analysis from the saved data:
+
+```bash
+uv run frozen-lake validate --run results/canonical/experiment-1
+uv run frozen-lake plot --run results/canonical/experiment-1
+```
+
+## Documentation
+
+- [Research report](REPORT.md) — the results: success, cost and trade-offs of the four strategies, with figures, uncertainty and limitations.
+- [Command guide](docs/commands.md) — setup, CLI commands and options, TUI controls, and common workflows.
+- [Experimental design](docs/experiment-design.md) — the research question, strategies, metrics, fixed conditions, and analysis method.
 
 ## Development
 
@@ -118,10 +135,10 @@ uv run ruff format --check .  # format check
 uv run ruff format .          # apply formatting
 ```
 
-The same commands are available as `just` recipes (`just test`, `just lint`, `just format`, `just check`). If `just` is not installed, you can run it without installing:
+The same commands are available as `just` recipes (`just test`, `just lint`, `just format`), and `just ci` runs everything CI runs. If `just` is not installed, you can run it without installing:
 
 ```bash
-uvx --from rust-just just check
+uvx --from rust-just just ci
 ```
 
 ### Dev Container
@@ -140,6 +157,9 @@ frozen-lake/
 ├── .github/workflows/    # CI
 ├── configs/              # The experiment configuration (experiment.toml)
 ├── docs/                 # Supplementary documentation
+├── results/
+│   ├── canonical/        # The study's run (experiment-1), with its analysis
+│   └── generated/        # New runs (not tracked by git)
 ├── src/frozen_lake/      # Python package (import name: frozen_lake)
 │   ├── cli.py            # Typer entry point for the `frozen-lake` command
 │   ├── models.py         # Shared types: actions, tiles, transitions, results
@@ -148,8 +168,10 @@ frozen-lake/
 │   ├── policies/         # Base policies: bfs.py, expectimax.py, shared utils.py
 │   ├── rollout.py        # Monte Carlo Rollout over any base policy, and its exact reference
 │   ├── experiments/      # The experiment runner: config, seeds, matrix, runner, records, validation
+│   ├── analysis/         # Analysis of a finished run: bootstrap, tables, figures (the `plot` command)
 │   └── tui/              # Textual explorer (app.py, app.tcss, colors.py)
 ├── tests/                # pytest suite
+├── REPORT.md             # Research report
 ├── pyproject.toml        # Project metadata, dependencies, Ruff/pytest config
 ├── uv.lock               # Locked dependency versions
 └── justfile              # Optional task aliases

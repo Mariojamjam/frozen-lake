@@ -1,0 +1,33 @@
+{
+  "amortization_r": 30,
+  "bootstrap": {
+    "confidence_level": 0.95,
+    "interval": "percentile",
+    "method": "cluster bootstrap: resample maps, then episodes within each map",
+    "resamples": 2000,
+    "seed": 2026
+  },
+  "config_sha256": "c1371dcbc8cbad1f6316b7f927aaa7aace6ceaa933d795a90f2065814c855cec",
+  "decisions_logged": true,
+  "figures": [
+    "figure_a_success_vs_amortized_time.png",
+    "figure_b_success_vs_samples.png",
+    "figure_c_cost_vs_samples.png",
+    "figure_d_build_time_vs_size.png",
+    "figure_e_search_work_vs_size.png",
+    "figure_f_memory_diagnostics.png",
+    "figure_g_shared_state_decision_time.png",
+    "figure_h_amortization_sensitivity.png"
+  ],
+  "frozen_lake_version": "0.1.0",
+  "maps_sha256": "db799fc842b0599a61fdf1a40bfbdb3db38e80cc34f6ee00aedbfac904456a87",
+  "run": "results/canonical/experiment-1",
+  "tables": [
+    "arms.csv",
+    "paired_differences.csv",
+    "amortization_sensitivity.csv",
+    "policy_builds.csv",
+    "decision_times.csv",
+    "shared_state_decision_time.csv"
+  ]
+}
