@@ -9,9 +9,9 @@ Every setting in this document has one of two statuses:
 | Status | Meaning |
 |---|---|
 | **Fixed** | Part of the study design, including every experimental setting in `configs/experiment.toml`. Changing it changes the study. |
-| **Open** | Not yet decided. It must be decided and recorded before the experiment runs. |
+| **Open** | Not yet decided. It must be decided and recorded before the experiment runs. None remain. |
 
-No result is reported here. All numbers in the worked examples are either computed from the definitions (marked *computed*) or invented to illustrate a formula (marked *illustrative*). None of them is an experimental finding.
+No result is reported here; the results are in the [research report](../REPORT.md). All numbers in the worked examples are either computed from the definitions (marked *computed*) or invented to illustrate a formula (marked *illustrative*). None of them is an experimental finding.
 
 ---
 
@@ -743,7 +743,7 @@ The settings are 2,000 resamples and 95% percentile intervals, with the bootstra
 
 Decision times are skewed: a few long decisions occur when trajectories survive long. Medians and spread (for example interquartile ranges) are reported along with means. Build and online costs are reported separately before they are combined into amortized cost.
 
-### 11.4 Planned figures
+### 11.4 Figures
 
 | Figure | Shows | Answers |
 |---|---|---|
@@ -753,10 +753,10 @@ Decision times are skewed: a few long decisions occur when trajectories survive 
 | D | Policy build time vs map size | H2 |
 | E | Search work vs map size, per algorithm and counter | H2, H5 |
 | F | Algorithm-specific memory diagnostics (queue, stack, cache) | H2 |
-| G (optional) | Decision time of EXP-RO over BFS-RO on the states both visited | Cost without the episode-length confound |
+| G | Decision time of EXP-RO over BFS-RO on the states both visited | Cost without the episode-length confound |
 | H | Amortized time difference between EXP-RO and BFS-RO as $R$ grows | How the answer depends on $R$ (§7.3) |
 
-All figures are generated from the saved raw data, never by re-running agents.
+All figures are generated from the saved raw data, never by re-running agents. `frozen-lake plot` writes them to the run's `analysis/figures/` folder; those of the study's run are in `results/canonical/experiment-1/analysis/figures/`.
 
 ---
 
