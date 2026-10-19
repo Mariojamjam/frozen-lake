@@ -384,7 +384,16 @@ It prints the experiment it is about to run, then one progress line per finished
 | `--output-dir DIR` | Folder for the results, overriding `experiment.output_dir` |
 | `--dry-run` | Validate and describe the experiment, then stop without running |
 
-Results go to a new folder named after the start time and the first 8 characters of the configuration hash, for example `results/20261018-125816-7307f7ed/`. If that folder already exists, `benchmark` stops instead of overwriting it.
+Results go to a new folder named after the start time and the first 8 characters of the configuration hash, for example `results/generated/20261018-125816-7307f7ed/`. If that folder already exists, `benchmark` stops instead of overwriting it.
+
+`results/` has two parts:
+
+| Folder | Contents | In git |
+|---|---|---|
+| `results/generated/` | Every new run, named automatically | No (ignored) |
+| `results/canonical/` | The runs the study reports, under a chosen name, for example `results/canonical/experiment-1/` | Yes |
+
+To make a run canonical, move its folder from `generated/` to `canonical/` under its new name, then regenerate its analysis with `plot`. Renaming is safe: `validate` and `plot` do not depend on the folder name, and the run's provenance (configuration hash, commit, map hashes) stays in its `metadata.json`.
 
 #### The configuration file
 
@@ -499,8 +508,8 @@ Blank still means "does not apply". Two things to keep in mind when reading the 
 #### Examples
 
 ```bash
-uv run frozen-lake plot --run results/20261018-125816-7307f7ed
-uv run frozen-lake plot --run results/20261018-125816-7307f7ed --output-dir /tmp/figs --resamples 5000
+uv run frozen-lake plot --run results/canonical/experiment-1
+uv run frozen-lake plot --run results/canonical/experiment-1 --output-dir /tmp/figs --resamples 5000
 ```
 
 ### 4.8 Exit codes and errors

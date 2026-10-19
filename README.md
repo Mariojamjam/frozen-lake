@@ -108,7 +108,14 @@ uv run frozen-lake benchmark --config configs/experiment.toml --dry-run  # descr
 uv run frozen-lake benchmark --config configs/experiment.toml            # run it
 ```
 
-`configs/experiment.toml` describes the whole experiment: lake sizes, maps, episodes, Rollout sample counts and the Expectimax settings. `benchmark` generates every map, builds and times each base policy, plays every strategy on the same maps and episode seeds, and writes raw CSV results, a summary and the run's metadata to a new folder under `results/`, then checks them for completeness.
+`configs/experiment.toml` describes the whole experiment: lake sizes, maps, episodes, Rollout sample counts and the Expectimax settings. `benchmark` generates every map, builds and times each base policy, plays every strategy on the same maps and episode seeds, and writes raw CSV results, a summary and the run's metadata to a new folder under `results/generated/`, then checks them for completeness.
+
+The study's run is kept in [`results/canonical/experiment-1/`](results/canonical/experiment-1/): its configuration, maps, raw CSV results, metadata, and the tables and figures in `analysis/`. To check it and regenerate the analysis from the saved data:
+
+```bash
+uv run frozen-lake validate --run results/canonical/experiment-1
+uv run frozen-lake plot --run results/canonical/experiment-1
+```
 
 ## Development
 
