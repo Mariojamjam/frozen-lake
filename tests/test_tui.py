@@ -446,3 +446,238 @@ async def test_switching_mode_stops_autoplay():
         await pilot.press("1", "a", "2")
         assert app.autoplay_timer is None
         assert app.session.steps == 0
+
+
+# --- tuning N and the Expectimax depth inside the explorer -------------------------------------
+
+
+async def test_plus_and_minus_step_n_along_the_experiment_budgets_and_restart():
+    app = make_app(rollouts=25)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("4", "space")
+        await pilot.press("plus")
+        assert app.rollouts == 50
+        assert app.session.steps == 0 and app.session.seed == 42  # same seed, new decisions
+        await pilot.press("minus", "minus")
+        assert app.rollouts == 10
+        await pilot.press("minus")  # already the smallest step
+        assert app.rollouts == 10
+        assert "N 10" in status(app)
+
+
+async def test_n_off_the_budget_steps_moves_to_the_nearest_one():
+    app = make_app(rollouts=30)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("plus")
+        assert app.rollouts == 50
+    app = make_app(rollouts=30)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("minus")
+        assert app.rollouts == 25
+
+
+async def test_brackets_change_the_depth_and_rebuild_expectimax():
+    app = make_app(RUNNING_MAP, depth=6)
+    async with app.run_test(size=(100, 30)) as pilot:
+        bfs_build = app.builds[StrategyId.BFS]
+        await pilot.press("left_square_bracket", "left_square_bracket")
+        assert app.depth == 4
+        assert app.builds[StrategyId.BFS] is bfs_build  # BFS does not depend on the depth
+        assert "EXP depth 4" in lake_subtitle(app)
+        model = app_model(app)
+        expected = build_expectimax_policy(app.desc, model, depth=4, beta=0.9, gamma=1.0)
+        assert app.builds[StrategyId.EXP].policy == expected.policy
+        await pilot.press("right_square_bracket")
+        assert app.depth == 5
+
+
+async def test_the_depth_keys_stop_at_one():
+    app = make_app(depth=1)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("left_square_bracket")
+        assert app.depth == 1
+
+
+async def test_settings_apply_typed_values():
+    from textual.widgets import Input
+
+    from frozen_lake.tui.app import SettingsScreen
+
+    app = make_app(RUNNING_MAP)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("s")
+        assert isinstance(app.screen, SettingsScreen)
+        app.screen.query_one("#rollouts", Input).value = "333"
+        app.screen.query_one("#depth", Input).value = "3"
+        app.screen.query_one("#beta", Input).value = "0.95"
+        app.screen.query_one("#horizon", Input).value = "7"
+        await pilot.press("enter")
+        assert not isinstance(app.screen, SettingsScreen)
+        assert (app.rollouts, app.depth, app.beta, app.horizon) == (333, 3, 0.95, 7)
+        assert "N 333 · horizon 7" in status(app)
+        assert "EXP depth 3 · beta 0.95" in lake_subtitle(app)
+
+
+async def test_invalid_settings_cannot_be_applied_and_cancel_keeps_everything():
+    from textual.widgets import Button, Input
+
+    from frozen_lake.tui.app import SettingsScreen
+
+    app = make_app()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("s")
+        app.screen.query_one("#beta", Input).value = "1"
+        await pilot.pause()
+        assert app.screen.query_one("#apply", Button).disabled
+        assert "beta" in str(app.screen.query_one("#problems", Static).content)
+        await pilot.press("enter")
+        assert isinstance(app.screen, SettingsScreen)  # not applied
+        await pilot.press("escape")
+        assert not isinstance(app.screen, SettingsScreen)
+        assert app.beta == 0.9
+
+
+async def test_space_and_arrows_do_not_play_while_the_settings_are_open():
+    app = make_app()
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.press("s", "space", "left", "space")
+        assert app.session.steps == 0
+
+
+async def test_a_rollout_seed_fixes_the_simulations_across_episode_seeds():
+    def first_estimates(episode_seed):
+        return make_app(RUNNING_MAP, rollouts=5, rollout_seed=3, episode_seed=episode_seed)
+
+    first, second = first_estimates(1), first_estimates(2)
+    async with first.run_test(size=(100, 30)) as pilot:
+        await pilot.press("3", "space")
+        one = first.last_decision.estimated_action_values
+    async with second.run_test(size=(100, 30)) as pilot:
+        await pilot.press("3", "space")
+        two = second.last_decision.estimated_action_values
+    assert one == two  # the first decision is taken from the start, with the same simulations
+
+
+# --- the episode form ----------------------------------------------------------------------------
+
+
+def form_defaults():
+    return dict(
+        strategy=StrategyId.BFS, quiet=False, size=4, map_seed=42, episode_seed=42,
+        frozen_probability=0.9, success_rate=0.8, max_steps=None, depth=6, beta=0.9,
+        rollouts=25, horizon=None, rollout_seed=None,
+    )  # fmt: skip
+
+
+def test_the_equivalent_command_lists_only_what_changed_and_matters():
+    from frozen_lake.tui.episode_form import episode_command
+
+    defaults = form_defaults()
+    assert episode_command(defaults, defaults) == "frozen-lake episode"
+    changed = {**defaults, "strategy": StrategyId.EXP_RO, "size": 8, "rollouts": 100, "quiet": True}
+    assert episode_command(changed, defaults) == "frozen-lake episode -S EXP-RO -s 8 -n 100 -q"
+    # BFS ignores the Expectimax and Rollout settings, so they are left out.
+    ignored = {**defaults, "depth": 3, "rollouts": 100}
+    assert episode_command(ignored, defaults) == "frozen-lake episode"
+    assert episode_command({**defaults, "beta": 0.95, "strategy": StrategyId.EXP}, defaults) == (
+        "frozen-lake episode -S EXP -b 0.95"
+    )
+
+
+async def test_the_form_enables_only_the_settings_of_the_chosen_strategy():
+    from textual.widgets import Input
+
+    from frozen_lake.tui.episode_form import EpisodeForm
+
+    form = EpisodeForm(form_defaults())
+    async with form.run_test(size=(90, 32)) as pilot:
+        assert form.query_one("#depth", Input).disabled
+        assert form.query_one("#rollouts", Input).disabled
+        await pilot.click("#EXP")
+        assert not form.query_one("#depth", Input).disabled
+        assert form.query_one("#rollouts", Input).disabled
+        await pilot.click("#BFS_RO")
+        assert form.query_one("#depth", Input).disabled
+        assert not form.query_one("#rollouts", Input).disabled
+
+
+async def test_the_form_blocks_invalid_values_and_returns_the_chosen_ones():
+    from textual.widgets import Button, Input
+
+    from frozen_lake.tui.episode_form import EpisodeForm
+
+    form = EpisodeForm(form_defaults())
+    async with form.run_test(size=(90, 32)) as pilot:
+        await pilot.click("#EXP_RO")
+        form.query_one("#size", Input).value = "1"
+        await pilot.pause()
+        assert form.query_one("#run", Button).disabled
+        assert "Lake size" in str(form.query_one("#problems", Static).content)
+        form.query_one("#size", Input).value = "6"
+        form.query_one("#rollouts", Input).value = "40"
+        await pilot.pause()
+        assert "-S EXP-RO -s 6 -n 40" in str(form.query_one("#command", Static).content)
+        await pilot.click("#run")
+    chosen = form.return_value
+    assert chosen["strategy"] is StrategyId.EXP_RO
+    assert (chosen["size"], chosen["rollouts"], chosen["horizon"]) == (6, 40, None)
+
+
+async def test_escape_cancels_the_form():
+    from frozen_lake.tui.episode_form import EpisodeForm
+
+    form = EpisodeForm(form_defaults())
+    async with form.run_test(size=(90, 32)) as pilot:
+        await pilot.press("escape")
+    assert form.return_value is None
+
+
+async def test_enter_plays_from_the_strategy_buttons():
+    from frozen_lake.tui.episode_form import EpisodeForm
+
+    form = EpisodeForm(form_defaults())
+    async with form.run_test(size=(90, 32)) as pilot:
+        await pilot.press("enter")
+    assert form.return_value is not None
+    assert form.return_value["strategy"] is StrategyId.BFS
+
+
+# --- lakes larger than the window --------------------------------------------------------------
+
+
+def lake_app(n):
+    return make_app(generate_map(n, 0.9, seed=42), max_steps=4 * n * n)
+
+
+@pytest.mark.parametrize("n", [20, 24, 30])
+async def test_a_lake_too_large_for_glyphs_is_drawn_whole_in_the_compact_view(n):
+    from frozen_lake.tui.app import compact_lines
+    from frozen_lake.tui.colors import AURORA
+
+    app = lake_app(n)
+    async with app.run_test(size=(100, 30)):
+        view = app.query_one(LakeView)
+        drawing = view.render()
+        lines = drawing.plain.split("\n")
+        assert len(lines) <= view.size.height  # nothing is cropped
+        assert sum(line.count("▀") for line in lines) == n * compact_lines(n)
+        assert "compact view" in drawing.plain
+        # The goal, bottom right, keeps its color: it is the last tile of the last tile row.
+        assert any(AURORA.lower() in str(span.style).lower() for span in drawing.spans)
+
+
+async def test_a_lake_too_large_even_for_the_compact_view_says_so_instead_of_cropping():
+    app = lake_app(40)
+    async with app.run_test(size=(100, 30)):
+        text = app.query_one(LakeView).render().plain
+        assert "This 40×40 lake needs at least 40 × 20 characters" in text
+        assert "▀" not in text
+
+
+async def test_enlarging_the_window_brings_the_glyphs_back():
+    app = lake_app(24)
+    async with app.run_test(size=(100, 30)) as pilot:
+        assert "★" not in lake_text(app)
+        await pilot.resize_terminal(160, 50)
+        await pilot.pause()
+        assert "★" in lake_text(app)
