@@ -5,6 +5,9 @@
   "containerEnv": {
     "UV_PROJECT_ENVIRONMENT": "/home/vscode/.venvs/frozen-lake"
   },
+  "remoteEnv": {
+    "PATH": "/home/vscode/.venvs/frozen-lake/bin:${containerEnv:PATH}"
+  },
   "postCreateCommand": "uv sync --locked",
   "customizations": {
     "vscode": {

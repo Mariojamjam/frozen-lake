@@ -43,7 +43,7 @@ def _blank(value: object) -> object:
 
 def _write(path: Path, columns: Sequence[str], rows: Iterable[dict]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as handle:
+    with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
         writer.writeheader()
         for row in rows:

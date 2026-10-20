@@ -90,7 +90,7 @@ _SECTIONS = {
 def load_config(path: str | Path) -> ExperimentConfig:
     """Read and validate an experiment configuration; raise ConfigError listing every problem."""
     try:
-        raw = tomllib.loads(Path(path).read_text())
+        raw = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError as error:
         raise ConfigError(f"config file not found: {path}") from error
     except tomllib.TOMLDecodeError as error:

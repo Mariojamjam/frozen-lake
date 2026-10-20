@@ -11,7 +11,7 @@ from frozen_lake.policies import BASE_STRATEGIES
 
 
 def _read_csv(path: Path) -> list[dict]:
-    with path.open(newline="") as handle:
+    with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
 
 
@@ -25,8 +25,8 @@ def validate_run(run_dir: str | Path) -> list[str]:
     if missing:
         return [f"missing files: {', '.join(missing)}"]
 
-    config = parse_config(json.loads((run_dir / "configuration.json").read_text()))
-    maps = json.loads((run_dir / "maps.json").read_text())
+    config = parse_config(json.loads((run_dir / "configuration.json").read_text(encoding="utf-8")))
+    maps = json.loads((run_dir / "maps.json").read_text(encoding="utf-8"))
     expected_maps = {record.map_id: record for record in generate_maps(config)}
     if [m["map_id"] for m in maps] != list(expected_maps):
         problems.append("maps.json does not list the expected maps")

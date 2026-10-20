@@ -76,7 +76,7 @@ class DecisionData:
 
 
 def _rows(path: Path) -> Iterator[dict[str, str]]:
-    with path.open(newline="") as handle:
+    with path.open(newline="", encoding="utf-8") as handle:
         yield from csv.DictReader(handle)
 
 
@@ -87,9 +87,9 @@ def _optional_int(value: str) -> int | None:
 def load_run(run_dir: str | Path) -> RunData:
     """Read the configuration, the episodes and the policy builds of a results folder."""
     run_dir = Path(run_dir)
-    config = parse_config(json.loads((run_dir / "configuration.json").read_text()))
-    metadata = json.loads((run_dir / "metadata.json").read_text())
-    maps = json.loads((run_dir / "maps.json").read_text())
+    config = parse_config(json.loads((run_dir / "configuration.json").read_text(encoding="utf-8")))
+    metadata = json.loads((run_dir / "metadata.json").read_text(encoding="utf-8"))
+    maps = json.loads((run_dir / "maps.json").read_text(encoding="utf-8"))
 
     all_arms = tuple(arms(config))
     arm_position = {(a.strategy.value, a.estimator or "", str(a.rollout_n or "")): i
