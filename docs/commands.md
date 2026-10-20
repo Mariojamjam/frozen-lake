@@ -571,18 +571,21 @@ uv run pytest -x                                   # stop at the first failure
 uv run pytest -v                                   # one line per test
 ```
 
+Every test guards a property the study or its tools depend on, and checks it through the system's state, results, call arguments and exit codes, never through printed text, colors or glyphs.
+
 | File | Covers |
 |---|---|
-| `tests/test_models.py` | Shared types: actions, tiles, transitions, strategy IDs, results |
-| `tests/test_environment.py` | Maps, the real environment, the transition model and its parity with Gymnasium, the sampler |
-| `tests/test_bfs.py` | BFS distances, policy extraction, ties, fallbacks, counters |
-| `tests/test_expectimax.py` | Expectimax heuristic, MAX/CHANCE values, memoization, ties, fallbacks, counters |
-| `tests/test_rollout.py` | Simulated trajectories, Rollout decisions, ties, horizon limits, reproducibility, isolation from the real environment, the exact reference |
-| `tests/test_experiments.py` | Configuration validation, seeds, maps, arms, whole runs, pairing, reproducibility, result validation |
-| `tests/test_analysis.py` | Loading runs, the cluster bootstrap, summaries, tables, figures and the `plot` command |
-| `tests/test_episodes.py` | The episode engine and whole episodes played by a policy |
-| `tests/test_cli.py` | Command-line options, short forms, help pages, defaults, prompts, output and errors |
-| `tests/test_tui.py` | The explorer, its settings and the episode form, driven by key presses without a screen |
+| `tests/conftest.py` | Shared fixtures: one small experiment run made once per session, and a private copy for tests that damage it |
+| `tests/test_models.py` | The action encoding shared with Gymnasium, strategy properties, what success means |
+| `tests/test_environment.py` | Maps (reproducible, reachable goal), the transition model against Gymnasium and against an independent slip geometry, the step limit, the sampler |
+| `tests/test_episodes.py` | Episode semantics: terminated versus truncated, no step after the end, reproducible slips, one decision per step |
+| `tests/test_bfs.py` | Shortest distances, every move one step closer (also on generated lakes), ties, safe fallbacks |
+| `tests/test_expectimax.py` | Values against an uncached oracle (several depths, discounts and lakes), the goal counted once, ties, fallbacks, counters, and the build time including BFS |
+| `tests/test_rollout.py` | Trajectories, decisions, ties, the horizon, seeds, isolation from the real environment, convergence to the exact reference, no planner imported |
+| `tests/test_experiments.py` | The protocol matches the canonical run, configuration checks, seeds, arms, pairing, reproducibility, never overwriting, and validation catching every kind of damage |
+| `tests/test_analysis.py` | Pareto frontier, amortization, the cluster bootstrap and its pairing, agreement with the raw data, determinism, damaged runs refused |
+| `tests/test_cli.py` | Options reaching the right calls, short and long forms, defaults, prompts, run selection, exit codes, no Textual in headless commands |
+| `tests/test_tui.py` | The explorer (steps, modes, seeds, new lakes, tuning N and depth, settings, autoplay, a lake never cropped) and the episode form |
 
 The interface tests use Textual's headless `run_test()`, so they run anywhere, including CI, without opening a window.
 
