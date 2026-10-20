@@ -793,7 +793,7 @@ There is a single experiment, described by `configs/experiment.toml`. Every sett
 
 ### 12.2 Run and validate
 
-`frozen-lake benchmark --config configs/experiment.toml` generates and saves every map, builds and times every base policy, and plays every arm on the same maps and episode seeds, headless and with no parameter changes during the run. The results go to a new folder named after the start time and the configuration hash; an existing folder is never overwritten. The run the study reports is kept in `results/canonical/experiment-1/`. Its saved configuration names `results` as the output folder, where `configs/experiment.toml` now names `results/generated`; the output folder affects no measurement, but it is part of the configuration hash, so the two hashes differ. Before anything is analyzed, the written data are validated:
+`frozen-lake benchmark`, which reads `configs/experiment.toml`, generates and saves every map, builds and times every base policy, and plays every arm on the same maps and episode seeds, headless and with no parameter changes during the run. The results go to a new folder named after the start time and the configuration hash; an existing folder is never overwritten. The run the study reports is kept in `results/canonical/experiment-1/`. Its saved configuration names `results` as the output folder, where `configs/experiment.toml` now names `results/generated`; the output folder affects no measurement, but it is part of the configuration hash, so the two hashes differ. Before anything is analyzed, the written data are validated:
 - every map, episode and arm is present, and no row is duplicated;
 - every arm of an episode shares the same episode seed;
 - every episode's decisions add up to its steps;

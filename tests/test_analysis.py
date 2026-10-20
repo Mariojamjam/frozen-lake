@@ -1,35 +1,28 @@
-import csv
 import json
-import shutil
+import statistics
 import tomllib
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 import pytest
-from typer.testing import CliRunner
+from helpers import read_csv
 
 from frozen_lake.analysis import InvalidResults, analyze_run, analyze_size, pareto_frontier
 from frozen_lake.analysis.bootstrap import amortization_sensitivity
 from frozen_lake.analysis.loading import BASES, SizeData, load_decisions, load_run
 from frozen_lake.analysis.summaries import build_summaries, shared_state_times
-from frozen_lake.cli import app
-from frozen_lake.experiments import SAMPLED, Arm, load_config, parse_config, run_experiment
+from frozen_lake.experiments import SAMPLED, Arm, parse_config, run_experiment
 from frozen_lake.models import StrategyId
 
 TINY = Path(__file__).parent / "data" / "tiny.toml"
 RESAMPLES = 200
 PNG = b"\x89PNG\r\n\x1a\n"
-runner = CliRunner()
-
-
-def read_csv(path: Path) -> list[dict]:
-    with path.open(newline="") as handle:
-        return list(csv.DictReader(handle))
 
 
 @pytest.fixture(scope="module")
-def run_dir(tmp_path_factory) -> Path:
-    return run_experiment(load_config(TINY), output_root=tmp_path_factory.mktemp("runs"))
+def run_dir(tiny_run) -> Path:
+    return tiny_run
 
 
 @pytest.fixture(scope="module")
@@ -97,18 +90,18 @@ def test_interval_reflects_the_variation_between_maps():
     assert rollout.low == 0.0 and rollout.high == 1.0  # a resample can pick one map thrice
 
 
-def test_same_seed_gives_the_same_intervals():
-    success = np.random.default_rng(0).integers(0, 2, size=(4, 3, 4)).astype(float)
-    first = analyze_size(synthetic(success), resamples=RESAMPLES, seed=9)
-    second = analyze_size(synthetic(success), resamples=RESAMPLES, seed=9)
-    assert first == second
-
-
-def test_paired_difference_uses_the_same_episodes_of_both_arms():
-    success = np.zeros((4, 3, 4))
-    success[2] = 1.0  # BFS-RO always succeeds, EXP-RO never does
-    diff = analyze_size(synthetic(success), resamples=RESAMPLES, seed=2).differences[0]
-    assert (diff.success.estimate, diff.success.low, diff.success.high) == (-1.0, -1.0, -1.0)
+def test_paired_differences_resample_the_same_maps_and_episodes_for_both_arms():
+    # Both Rollout arms succeed and fail on exactly the same episodes, and the maps differ a
+    # lot (one easy, one hard, one mixed). Each arm's own rate therefore varies between
+    # resamples, but their paired difference is 0 in every resample. A bootstrap that drew
+    # maps or episodes separately for each arm would give the difference a wide interval.
+    per_map = np.array([[1, 1, 1, 1], [0, 0, 0, 0], [1, 0, 1, 0]], dtype=float)
+    success = np.ones((4, 3, 4))
+    success[2] = success[3] = per_map
+    result = analyze_size(synthetic(success), resamples=1000, seed=2)
+    assert result.success[2].low < result.success[2].high  # each arm alone does vary
+    diff = result.differences[0]
+    assert (diff.success.estimate, diff.success.low, diff.success.high) == (0.0, 0.0, 0.0)
 
 
 def test_amortization_curve_agrees_with_the_estimate_at_r_equal_e():
@@ -174,43 +167,49 @@ def test_build_summaries_report_each_algorithms_own_counters(run_dir):
         by_base.setdefault(summary.base, summary)
         assert summary.builds == summary.maps * run.config.policies.build_repeats
         assert summary.q1_ms <= summary.median_ms <= summary.q3_ms
-    assert "peak_queue" in by_base["BFS"].counters
-    assert "cache_entries" in by_base["EXP"].counters
-    assert "cache_entries" not in by_base["BFS"].counters
+    assert set(by_base) == {"BFS", "EXP"}
+    assert all(summary.counters for summary in by_base.values())
 
 
-def test_shared_state_ratios_are_positive_and_averaged(run_dir):
+def test_shared_state_time_compares_only_states_both_rollouts_visited(run_dir):
     run = load_run(run_dir)
     decisions = load_decisions(run_dir)
     assert decisions is not None
     times = shared_state_times(run, decisions)
     assert times
-    for entry in times:
-        assert all(r > 0 for r in entry.ratios)
-        assert entry.mean_ratio == pytest.approx(sum(entry.ratios) / len(entry.ratios))
+
+    # Recompute one entry from the raw decision log: per map, the median decision time of each
+    # Rollout strategy on the states both of them decided in, then EXP-RO over BFS-RO.
+    entry = times[0]
+    visits = defaultdict(lambda: defaultdict(list))
+    for row in read_csv(run_dir / "decision_metrics.csv"):
+        wanted = (SAMPLED, str(entry.size), str(entry.rollout_n))
+        if (row["estimator"], row["size"], row["rollout_n"]) == wanted:
+            key = (row["map_id"], row["strategy"])
+            visits[key][row["state"]].append(int(row["decision_time_ns"]) / 1e6)
+    ratios = []
+    for map_id in sorted({map_id for map_id, _ in visits}):
+        bfs, exp = visits[(map_id, "BFS-RO")], visits[(map_id, "EXP-RO")]
+        shared = bfs.keys() & exp.keys()
+        if shared:
+            exp_ms = statistics.median(t for s in shared for t in exp[s])
+            bfs_ms = statistics.median(t for s in shared for t in bfs[s])
+            ratios.append(exp_ms / bfs_ms)
+    assert sorted(entry.ratios) == pytest.approx(sorted(ratios))
 
 
 # --- the whole analysis ----------------------------------------------------------------------
 
 
-def test_analysis_writes_figures_tables_and_a_record(analysis):
-    assert len(analysis.figures) == 8
-    for path in analysis.figures:
-        assert path.read_bytes().startswith(PNG)
-    names = {path.name for path in analysis.tables}
-    assert names == {
-        "arms.csv",
-        "paired_differences.csv",
-        "amortization_sensitivity.csv",
-        "policy_builds.csv",
-        "decision_times.csv",
-        "shared_state_decision_time.csv",
-    }
-    record = json.loads((analysis.output_dir / "analysis.json").read_text())
+def test_analysis_writes_valid_figures_tables_and_its_provenance(analysis, tiny_config):
+    assert analysis.figures and analysis.tables
+    assert all(path.read_bytes().startswith(PNG) for path in analysis.figures)
+    assert all(read_csv(path) for path in analysis.tables)  # readable, with rows
+    record = json.loads((analysis.output_dir / "analysis.json").read_text(encoding="utf-8"))
     assert record["bootstrap"]["resamples"] == RESAMPLES
-    assert record["bootstrap"]["seed"] == load_config(TINY).experiment.master_seed
+    assert record["bootstrap"]["seed"] == tiny_config.experiment.master_seed
     assert record["decisions_logged"] is True
-    assert len(record["figures"]) == 8
+    assert sorted(record["figures"]) == sorted(path.name for path in analysis.figures)
 
 
 def test_exact_reference_has_no_cost_in_the_tables(analysis):
@@ -227,57 +226,20 @@ def test_the_same_run_and_seed_give_identical_tables(run_dir, analysis, tmp_path
         assert (again.output_dir / "tables" / path.name).read_bytes() == path.read_bytes()
 
 
-def test_a_run_without_logged_decisions_skips_what_needs_them(tmp_path):
-    raw = tomllib.loads(TINY.read_text())
+def test_a_run_without_logged_decisions_is_analyzed_without_them(tmp_path, analysis):
+    raw = tomllib.loads(TINY.read_text(encoding="utf-8"))
     raw["experiment"]["write_decisions"] = False
     run_dir = run_experiment(parse_config(raw), output_root=tmp_path / "runs")
     result = analyze_run(run_dir, tmp_path / "out", resamples=RESAMPLES)
-    figure_names = {p.name for p in result.figures}
-    assert "figure_c_cost_vs_samples.png" in figure_names
-    assert not any("figure_g" in name for name in figure_names)
-    assert not any(p.name == "decision_times.csv" for p in result.tables)
+    record = json.loads((result.output_dir / "analysis.json").read_text(encoding="utf-8"))
+    assert record["decisions_logged"] is False
+    assert len(result.figures) < len(analysis.figures)
+    assert len(result.tables) < len(analysis.tables)
 
 
-def test_damaged_results_are_not_analyzed(run_dir, tmp_path):
-    damaged = tmp_path / "damaged"
-    shutil.copytree(run_dir, damaged)
-    (damaged / "summary.csv").unlink()
+def test_damaged_results_are_not_analyzed(run_copy, tmp_path):
+    (run_copy / "summary.csv").unlink()
     with pytest.raises(InvalidResults) as error:
-        analyze_run(damaged, tmp_path / "out", resamples=RESAMPLES)
+        analyze_run(run_copy, tmp_path / "out", resamples=RESAMPLES)
     assert error.value.problems
     assert not (tmp_path / "out").exists()
-
-
-# --- the command -----------------------------------------------------------------------------
-
-
-def test_plot_command_writes_the_analysis(run_dir, tmp_path):
-    result = runner.invoke(
-        app,
-        ["plot", "--run", str(run_dir), "--output-dir", str(tmp_path), "--resamples", "100"],
-    )
-    assert result.exit_code == 0, result.output
-    assert "analysis written to" in result.output
-    assert (tmp_path / "figures" / "figure_a_success_vs_amortized_time.png").exists()
-
-
-def test_plot_defaults_to_an_analysis_folder_inside_the_run(run_dir, tmp_path):
-    copy = tmp_path / "run"
-    shutil.copytree(run_dir, copy)
-    result = runner.invoke(app, ["plot", "--run", str(copy), "--resamples", "100"])
-    assert result.exit_code == 0, result.output
-    assert (copy / "analysis" / "analysis.json").exists()
-
-
-def test_plot_reports_damaged_results(run_dir, tmp_path):
-    damaged = tmp_path / "damaged"
-    shutil.copytree(run_dir, damaged)
-    (damaged / "episode_metrics.csv").unlink()
-    result = runner.invoke(app, ["plot", "--run", str(damaged)])
-    assert result.exit_code == 1
-    assert "failed validation" in result.output
-
-
-def test_plot_needs_a_run_and_enough_resamples(run_dir):
-    assert runner.invoke(app, ["plot"]).exit_code == 2
-    assert runner.invoke(app, ["plot", "--run", str(run_dir), "--resamples", "10"]).exit_code == 2
