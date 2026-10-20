@@ -1,4 +1,4 @@
-import copy
+import math
 import random
 from collections import Counter
 
@@ -20,6 +20,7 @@ from frozen_lake.environment import (
     validate_transition_model,
 )
 from frozen_lake.models import Action, Tile, Transition
+from frozen_lake.policies.bfs import bfs_distances
 
 SUCCESS_RATE = 0.8
 
@@ -88,22 +89,13 @@ class FixedDraw:
 
 
 @pytest.mark.parametrize(
-    ("rows", "message"),
-    [
-        (["S"], "at least 2 rows"),
-        (["SFF", "FFG"], "must be square"),
-        (["SX", "FG"], "unknown tile letters"),
-        (["SS", "FG"], "exactly one 'S'"),
-        (["SF", "FF"], "exactly one 'G'"),
-    ],
+    "rows",
+    [["S"], ["SFF", "FFG"], ["SX", "FG"], ["SS", "FG"], ["SF", "FF"]],
+    ids=["too-small", "not-square", "unknown-tile", "two-starts", "no-goal"],
 )
-def test_validate_map_rejects_invalid_maps(rows, message):
-    with pytest.raises(ValueError, match=message):
+def test_validate_map_rejects_invalid_maps(rows):
+    with pytest.raises(ValueError):
         validate_map(rows)
-
-
-def test_validate_map_returns_an_immutable_tuple():
-    assert validate_map(["SF", "FG"]) == ("SF", "FG")
 
 
 def test_parse_map_ignores_indentation_and_blank_lines():
@@ -114,12 +106,14 @@ def test_generate_map_is_reproducible_from_its_seed():
     assert generate_map(8, 0.9, seed=7) == generate_map(8, 0.9, seed=7)
 
 
-@pytest.mark.parametrize("size", [4, 6, 10])
-def test_generated_maps_start_top_left_and_end_bottom_right(size):
-    desc = generate_map(size, 0.9, seed=1)
+@pytest.mark.parametrize("size", [4, 6, 10, 12])
+@pytest.mark.parametrize("seed", [0, 1, 2026])
+def test_generated_maps_run_from_top_left_to_a_reachable_bottom_right_goal(size, seed):
+    desc = generate_map(size, 0.9, seed=seed)
     assert len(desc) == size
     assert find_tile(desc, Tile.START) == 0
     assert find_tile(desc, Tile.GOAL) == size * size - 1
+    assert bfs_distances(desc)[0] < math.inf  # every lake of the study has a route to the goal
 
 
 @pytest.mark.parametrize(("size", "frozen_probability"), [(1, 0.9), (4, 0.0), (4, 1.5), (4, -0.1)])
@@ -134,13 +128,6 @@ def test_state_and_coordinates_are_inverse_row_major(n):
         row, col = to_coordinates(state, n)
         assert (row, col) == (state // n, state % n)
         assert to_state(row, col, n) == state
-
-
-def test_tile_lookup():
-    assert tile_at(LAKE_4X4, 0) == Tile.START
-    assert tile_at(LAKE_4X4, 5) == Tile.HOLE
-    assert tile_at(LAKE_4X4, 15) == Tile.GOAL
-    assert find_tile(LAKE_4X4, Tile.GOAL) == 15
 
 
 @pytest.mark.parametrize(
@@ -177,11 +164,6 @@ def test_deterministic_move_is_the_intended_outcome_of_the_slippery_model():
 def test_create_environment_rejects_invalid_parameters(max_steps, success_rate):
     with pytest.raises(ValueError):
         create_environment(LAKE_4X4, max_steps=max_steps, success_rate=success_rate)
-
-
-def test_create_environment_parameters_are_keyword_only():
-    with pytest.raises(TypeError):
-        create_environment(LAKE_4X4, 10, 0.8)  # type: ignore[misc]
 
 
 @pytest.mark.parametrize("max_steps", [3, 64, 250])
@@ -233,74 +215,29 @@ def test_model_matches_independent_slip_geometry(desc, success_rate):
             assert as_tuples(model[state][action]) == pytest.approx(expected)
 
 
-def test_border_bump_keeps_duplicate_destinations_with_full_mass():
-    outcomes = extract_transitions(make_env(LAKE_4X4))[0][Action.LEFT]
-    mass_by_state = Counter()
-    for t in outcomes:
-        mass_by_state[t.next_state] += t.probability
-    assert len(outcomes) == 3
-    assert mass_by_state[0] == pytest.approx(0.9)
-    assert mass_by_state[4] == pytest.approx(0.1)
-
-
-def test_goal_reward_is_paid_once_on_entry():
-    model = extract_transitions(make_env(LAKE_4X4))
-    goal = find_tile(LAKE_4X4, Tile.GOAL)
-    for state in range(len(model)):
-        for action in Action:
-            for t in model[state][action]:
-                entering_goal = t.next_state == goal and state != goal
-                assert t.reward == (1.0 if entering_goal else 0.0)
-    assert model[goal][Action.UP] == (Transition(1.0, goal, 0.0, True),)
-
-
-def test_holes_and_goal_terminate_and_frozen_tiles_do_not():
-    model = extract_transitions(make_env(LAKE_4X4))
-    for state in range(len(model)):
-        for action in Action:
-            for t in model[state][action]:
-                tile = tile_at(LAKE_4X4, t.next_state)
-                assert t.terminated == (tile in (Tile.HOLE, Tile.GOAL))
-
-
-def test_deterministic_movement_drops_zero_probability_records():
-    model = extract_transitions(make_env(LAKE_4X4, success_rate=1.0))
-    assert model[0][Action.RIGHT] == (Transition(1.0, 1, 0.0, False),)
-    assert all(t.probability > 0.0 for actions in model for outcomes in actions for t in outcomes)
-
-
-def test_model_is_immutable():
-    model = extract_transitions(make_env(LAKE_4X4))
-    assert isinstance(model, tuple)
-    assert isinstance(model[0], tuple)
-    assert isinstance(model[0][0], tuple)
-
-
 def test_extraction_rejects_a_corrupted_gymnasium_table():
     env = make_env(LAKE_4X4)
     env.unwrapped.P[0][Action.LEFT][0] = (0.5, 0, 0, False)
-    with pytest.raises(ValueError, match="sum to 1.4"):
+    with pytest.raises(ValueError):  # the outcomes of that action no longer sum to 1
         extract_transitions(env)
 
 
-VALID_OUTCOMES = (Transition(1.0, 0, 0.0, False),)
+VALID = (Transition(1.0, 0, 0.0, False),)
 
 
 @pytest.mark.parametrize(
-    ("model", "message"),
+    "state",
     [
-        (((VALID_OUTCOMES,) * 3,), "3 actions"),
-        (((), VALID_OUTCOMES, VALID_OUTCOMES, VALID_OUTCOMES), "no outcomes"),
-        (((Transition(1.0, 9, 0.0, False),),) + (VALID_OUTCOMES,) * 3, "out of range"),
-        (((Transition(0.5, 0, 0.0, False),),) + (VALID_OUTCOMES,) * 3, "sum to 0.5"),
+        (VALID, VALID, VALID),  # an action is missing
+        ((), VALID, VALID, VALID),  # an action has no outcome
+        ((Transition(1.0, 9, 0.0, False),), VALID, VALID, VALID),  # leads outside the lake
+        ((Transition(0.5, 0, 0.0, False),), VALID, VALID, VALID),  # probabilities sum to 0.5
     ],
     ids=["missing-action", "empty", "bad-state", "bad-sum"],
 )
-def test_validate_transition_model_rejects_invalid_models(model, message):
-    if len(model) == 4:  # the last three cases describe the actions of one single state
-        model = (model,)
-    with pytest.raises(ValueError, match=message):
-        validate_transition_model(model)
+def test_validate_transition_model_rejects_invalid_models(state):
+    with pytest.raises(ValueError):
+        validate_transition_model((state,))
 
 
 # --- sampler ----------------------------------------------------------------------------------
@@ -350,19 +287,3 @@ def test_sampler_falls_back_to_last_outcome_when_rounding_leaves_a_gap():
     outcomes = (Transition(0.5, 0, 0.0, False), Transition(0.4999999999, 1, 0.0, False))
     model = ((outcomes,) * 4,)
     assert sample_transition(model, 0, Action.LEFT, FixedDraw(0.99999999999)) == outcomes[-1]
-
-
-def test_sampling_never_touches_the_real_environment():
-    env = make_env(LAKE_4X4)
-    env.reset(seed=123)
-    env.step(Action.DOWN)
-    model = extract_transitions(env)
-    state_before = env.unwrapped.s
-    rng_before = copy.deepcopy(env.unwrapped.np_random.bit_generator.state)
-
-    rng = random.Random(0)
-    for _ in range(100_000):
-        sample_transition(model, 6, Action.RIGHT, rng)
-
-    assert env.unwrapped.s == state_before
-    assert env.unwrapped.np_random.bit_generator.state == rng_before

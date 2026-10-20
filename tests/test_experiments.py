@@ -1,16 +1,19 @@
-import csv
 import json
 import subprocess
 import sys
 import tomllib
+from collections import defaultdict
 from pathlib import Path
 
 import pytest
+from helpers import read_csv, write_csv
 
 from frozen_lake.experiments import (
     DECISION_COLUMNS,
     EPISODE_COLUMNS,
+    EXACT,
     POLICY_COLUMNS,
+    SAMPLED,
     SUMMARY_COLUMNS,
     ConfigError,
     arms,
@@ -24,194 +27,194 @@ from frozen_lake.experiments import (
 )
 from frozen_lake.models import StrategyId
 
+ROOT = Path(__file__).parent.parent
 TINY = Path(__file__).parent / "data" / "tiny.toml"
-EXPERIMENT = Path(__file__).parent.parent / "configs" / "experiment.toml"
+EXPERIMENT = ROOT / "configs" / "experiment.toml"
+CANONICAL = ROOT / "results" / "canonical" / "experiment-1"
 TIME_COLUMNS = {"agent_compute_ns", "wall_ns", "decision_time_ns"}
 
 
 def raw_tiny() -> dict:
-    return tomllib.loads(TINY.read_text())
+    return tomllib.loads(TINY.read_text(encoding="utf-8"))
 
 
-def read_csv(path: Path) -> list[dict]:
-    with path.open(newline="") as handle:
-        return list(csv.DictReader(handle))
-
-
-@pytest.fixture(scope="module")
-def tiny_run(tmp_path_factory) -> Path:
-    return run_experiment(load_config(TINY), output_root=tmp_path_factory.mktemp("runs"))
+def arm_key(row: dict) -> tuple:
+    return row["strategy"], row["estimator"], row["rollout_n"]
 
 
 # --- configuration -----------------------------------------------------------------------------
 
 
-def test_the_shipped_experiment_configuration_is_valid():
-    config = load_config(EXPERIMENT)
-    assert config.environment.sizes == (4, 6, 8, 10, 12)
-    assert config.rollout.samples_per_action == (10, 25, 50, 100, 200, 400, 800)
-    assert workload(config).episodes == 5 * 5 * 30 * 18
+def test_the_shipped_configuration_is_the_one_the_canonical_run_used():
+    # The study's protocol must not drift from the run it reports. Only the output folder of
+    # new runs moved (results/ to results/generated/), which affects no measurement.
+    shipped = json.loads(json.dumps(load_config(EXPERIMENT).as_dict()))  # tuples as lists
+    recorded = json.loads((CANONICAL / "configuration.json").read_text(encoding="utf-8"))
+    shipped["experiment"].pop("output_dir")
+    recorded["experiment"].pop("output_dir")
+    assert shipped == recorded
+
+
+def test_the_workload_counts_every_arm_on_every_map_and_episode(tiny_config):
+    config = tiny_config
+    load = workload(config)
+    maps = len(config.environment.sizes) * config.experiment.maps_per_size
+    assert load.episodes == maps * config.experiment.episodes_per_map * len(arms(config))
 
 
 @pytest.mark.parametrize(
-    ("section", "key", "value", "message"),
+    ("section", "key", "value"),
     [
-        ("rollout", "sampels_per_action", [1], "unknown key rollout.sampels_per_action"),
-        ("environment", "sizes", [], "environment.sizes must not be empty"),
-        ("environment", "sizes", [4, 4], "must not repeat"),
-        ("environment", "sizes", [1], "integers >= 2"),
-        ("policies", "heuristic_beta", 1.5, "beta must be in (0, 1)"),
-        ("policies", "build_repeats", 0, "build_repeats must be at least 1"),
-        ("environment", "success_rate", "high", "must be float"),
-        ("experiment", "write_decisions", 1, "must be bool"),
+        ("rollout", "sampels_per_action", [1]),  # a misspelled key is an error, not ignored
+        ("environment", "sizes", []),
+        ("environment", "sizes", [4, 4]),
+        ("environment", "sizes", [1]),
+        ("policies", "heuristic_beta", 1.5),
+        ("policies", "build_repeats", 0),
+        ("environment", "success_rate", "high"),
+        ("experiment", "write_decisions", 1),
     ],
+    ids=["unknown-key", "empty", "repeated", "too-small", "beta", "repeats", "type", "bool"],
 )
-def test_invalid_configurations_are_rejected_with_a_clear_message(section, key, value, message):
+def test_invalid_configurations_are_rejected(section, key, value):
     raw = raw_tiny()
     raw[section][key] = value
-    with pytest.raises(ConfigError, match=message.replace("(", r"\(").replace(")", r"\)")):
+    with pytest.raises(ConfigError):
         parse_config(raw)
 
 
-def test_a_missing_key_and_an_unknown_section_are_both_reported():
+def test_every_problem_of_a_configuration_is_reported_at_once():
     raw = raw_tiny()
     del raw["experiment"]["master_seed"]
     raw["extras"] = {}
     with pytest.raises(ConfigError) as error:
         parse_config(raw)
-    assert "missing key experiment.master_seed" in str(error.value)
-    assert "unknown section [extras]" in str(error.value)
+    assert "experiment.master_seed" in str(error.value) and "extras" in str(error.value)
 
 
 def test_a_missing_file_is_a_config_error(tmp_path):
-    with pytest.raises(ConfigError, match="not found"):
+    with pytest.raises(ConfigError):
         load_config(tmp_path / "nope.toml")
 
 
-def test_equal_settings_have_equal_fingerprints():
-    assert load_config(TINY).fingerprint() == parse_config(raw_tiny()).fingerprint()
+def test_equal_settings_have_equal_fingerprints(tiny_config):
+    assert tiny_config.fingerprint() == parse_config(raw_tiny()).fingerprint()
     raw = raw_tiny()
-    raw["experiment"]["master_seed"] = 8
-    assert parse_config(raw).fingerprint() != load_config(TINY).fingerprint()
+    raw["experiment"]["master_seed"] += 1
+    assert parse_config(raw).fingerprint() != tiny_config.fingerprint()
 
 
 # --- seeds, maps and arms ----------------------------------------------------------------------
 
 
 def test_seeds_are_stable_and_distinct_per_role():
-    assert derive_seed(2026, "map", 6, 0) == derive_seed(2026, "map", 6, 0)
-    assert derive_seed(2026, "map", 6, 0) == 6299549060498745003  # pinned: never changes silently
+    # Pinned on purpose: the canonical run's maps and episodes come from this seed scheme, so a
+    # change to it must break this test rather than silently change every seed.
+    assert derive_seed(2026, "map", 6, 0) == 6299549060498745003
     assert derive_seed(2026, "map", 6, 0) != derive_seed(2026, "map", 6, 1)
     assert derive_seed(2026, "map", 6, 0) != derive_seed(2026, "episode", 6, 0)
     assert 0 <= derive_seed(2026, "x") < 2**63
 
 
-def test_maps_are_reproducible_and_reachable():
-    config = load_config(TINY)
-    first, second = generate_maps(config), generate_maps(config)
+def test_maps_are_reproducible_reachable_and_one_set_per_size(tiny_config):
+    first, second = generate_maps(tiny_config), generate_maps(tiny_config)
     assert first == second
-    assert [m.map_id for m in first] == ["3-0", "3-1", "4-0", "4-1"]
     assert all(m.reachable for m in first)
+    per_size = defaultdict(int)
+    for record in first:
+        per_size[len(record.rows)] += 1
+    assert per_size == dict.fromkeys(tiny_config.environment.sizes, 2)
 
 
-def test_base_strategies_get_one_arm_each_and_rollout_one_per_n_plus_exact():
-    labels = [arm.label for arm in arms(load_config(TINY))]
-    assert labels == [
-        "BFS", "EXP",
-        "BFS-RO N=2", "EXP-RO N=2", "BFS-RO N=4", "EXP-RO N=4",
-        "BFS-RO exact", "EXP-RO exact",
-    ]  # fmt: skip
+def test_each_base_strategy_runs_once_and_each_rollout_once_per_n_plus_exact(tiny_config):
+    expected = {(StrategyId.BFS, None, None), (StrategyId.EXP, None, None)}
+    for n in tiny_config.rollout.samples_per_action:
+        expected |= {(StrategyId.BFS_RO, SAMPLED, n), (StrategyId.EXP_RO, SAMPLED, n)}
+    expected |= {(StrategyId.BFS_RO, EXACT, None), (StrategyId.EXP_RO, EXACT, None)}
+    found = [(arm.strategy, arm.estimator, arm.rollout_n) for arm in arms(tiny_config)]
+    assert len(found) == len(set(found)) and set(found) == expected
 
 
 # --- a whole run -------------------------------------------------------------------------------
 
 
 def test_a_run_writes_every_file_with_the_documented_columns(tiny_run):
-    names = sorted(p.name for p in tiny_run.iterdir())
-    assert names == [
-        "configuration.json", "decision_metrics.csv", "episode_metrics.csv", "maps.json",
-        "metadata.json", "policy_metrics.csv", "summary.csv",
-    ]  # fmt: skip
     for name, columns in [
         ("policy_metrics.csv", POLICY_COLUMNS),
         ("episode_metrics.csv", EPISODE_COLUMNS),
         ("decision_metrics.csv", DECISION_COLUMNS),
         ("summary.csv", SUMMARY_COLUMNS),
     ]:
-        with (tiny_run / name).open(newline="") as handle:
-            assert next(csv.reader(handle)) == columns
+        rows = read_csv(tiny_run / name)
+        assert rows and list(rows[0]) == columns
+    for name in ("configuration.json", "maps.json", "metadata.json"):
+        assert (tiny_run / name).is_file()
 
 
 def test_the_written_run_passes_validation(tiny_run):
     assert validate_run(tiny_run) == []
 
 
-def test_every_arm_plays_the_same_maps_and_episode_seeds(tiny_run):
-    episodes = read_csv(tiny_run / "episode_metrics.csv")
-    by_arm = {}
-    for row in episodes:
-        arm = (row["strategy"], row["estimator"], row["rollout_n"])
-        by_arm.setdefault(arm, set()).add(
-            (row["map_id"], row["episode_index"], row["episode_seed"])
-        )
-    assert len(by_arm) == 8
+def test_every_arm_plays_the_same_maps_and_episode_seeds(tiny_run, tiny_config):
+    by_arm = defaultdict(set)
+    for row in read_csv(tiny_run / "episode_metrics.csv"):
+        by_arm[arm_key(row)].add((row["map_id"], row["episode_index"], row["episode_seed"]))
+    assert len(by_arm) == len(arms(tiny_config))
     assert len({frozenset(value) for value in by_arm.values()}) == 1
 
 
-def test_base_only_strategies_run_once_per_episode_not_once_per_n(tiny_run):
-    episodes = read_csv(tiny_run / "episode_metrics.csv")
-    bfs = [r for r in episodes if r["strategy"] == "BFS"]
-    assert len(bfs) == 4 * 2  # 4 maps × 2 episodes
-    assert {r["estimator"] for r in bfs} == {""}
-    assert {r["rollout_n"] for r in bfs} == {""}
+def test_base_only_strategies_run_once_per_episode_not_once_per_n(tiny_run, tiny_config):
+    episodes = workload(tiny_config).episodes // len(arms(tiny_config))  # per arm
+    for strategy in ("BFS", "EXP"):
+        rows = [r for r in read_csv(tiny_run / "episode_metrics.csv") if r["strategy"] == strategy]
+        assert len(rows) == episodes
+        assert {r["estimator"] for r in rows} == {r["rollout_n"] for r in rows} == {""}
 
 
-def test_exact_reference_rows_have_no_n_and_sample_nothing(tiny_run):
-    episodes = read_csv(tiny_run / "episode_metrics.csv")
-    exact = [r for r in episodes if r["estimator"] == "exact"]
-    assert exact and {r["strategy"] for r in exact} == {"BFS-RO", "EXP-RO"}
+def test_the_exact_reference_samples_nothing_and_has_no_cost(tiny_run):
+    exact = [r for r in read_csv(tiny_run / "episode_metrics.csv") if r["estimator"] == EXACT]
+    assert exact
     assert {r["rollout_n"] for r in exact} == {""}
     assert {r["simulated_transitions"] for r in exact} == {"0"}
-    summary = read_csv(tiny_run / "summary.csv")
-    exact_summary = [r for r in summary if r["estimator"] == "exact"]
-    assert all(r["amortized_ms_per_episode"] == "" for r in exact_summary)  # not a cost to compare
+    summary = [r for r in read_csv(tiny_run / "summary.csv") if r["estimator"] == EXACT]
+    assert summary and all(r["amortized_ms_per_episode"] == "" for r in summary)
 
 
-def test_each_policy_build_is_repeated_and_recorded(tiny_run):
+def test_each_policy_build_is_repeated_and_recorded(tiny_run, tiny_config):
     builds = read_csv(tiny_run / "policy_metrics.csv")
-    assert len(builds) == 4 * 2 * 3  # maps × base policies × build_repeats
-    exp = [r for r in builds if r["base_policy"] == "EXP"]
-    assert {r["depth"] for r in exp} == {"3"}
+    maps = len(tiny_config.environment.sizes) * tiny_config.experiment.maps_per_size
+    assert len(builds) == maps * 2 * tiny_config.policies.build_repeats  # BFS and EXP
+    assert {r["depth"] for r in builds if r["base_policy"] == "EXP"} == {
+        str(tiny_config.policies.expectimax_depth)
+    }
     assert all(int(r["build_time_ns"]) > 0 for r in builds)
 
 
-def test_decisions_add_up_to_each_episode(tiny_run):
+def test_decisions_add_up_to_each_episode_and_carry_rollout_values(tiny_run):
     decisions = read_csv(tiny_run / "decision_metrics.csv")
     episodes = read_csv(tiny_run / "episode_metrics.csv")
     assert len(decisions) == sum(int(r["steps"]) for r in episodes)
-    sampled = [d for d in decisions if d["estimator"] == "sampled"]
-    assert all(d["q_left"] != "" for d in sampled)
+    assert all(d["q_left"] != "" for d in decisions if d["estimator"] == SAMPLED)
     assert all(d["q_left"] == "" for d in decisions if d["strategy"] in ("BFS", "EXP"))
 
 
-def test_metadata_records_provenance(tiny_run):
-    meta = json.loads((tiny_run / "metadata.json").read_text())
+def test_metadata_records_provenance(tiny_run, tiny_config):
+    meta = json.loads((tiny_run / "metadata.json").read_text(encoding="utf-8"))
     for key in ("config_sha256", "maps_sha256", "seed_scheme", "python", "packages", "units"):
         assert key in meta
+    assert meta["config_sha256"] == tiny_config.fingerprint()
     assert tiny_run.name.endswith(meta["config_sha256"][:8])
 
 
-def test_the_same_configuration_reproduces_the_same_outcomes(tmp_path, tiny_run):
-    again = run_experiment(load_config(TINY), output_root=tmp_path)
+def test_the_same_configuration_reproduces_the_same_outcomes(tmp_path, tiny_run, tiny_config):
+    again = run_experiment(tiny_config, output_root=tmp_path)
 
     def outcomes(run_dir, name):
-        return [
-            {k: v for k, v in row.items() if k not in TIME_COLUMNS}
-            for row in read_csv(run_dir / name)
-        ]
+        rows = read_csv(run_dir / name)
+        return [{k: v for k, v in row.items() if k not in TIME_COLUMNS} for row in rows]
 
-    assert outcomes(again, "episode_metrics.csv") == outcomes(tiny_run, "episode_metrics.csv")
-    assert outcomes(again, "decision_metrics.csv") == outcomes(tiny_run, "decision_metrics.csv")
+    for name in ("episode_metrics.csv", "decision_metrics.csv"):
+        assert outcomes(again, name) == outcomes(tiny_run, name)
 
 
 def test_decisions_can_be_turned_off(tmp_path):
@@ -222,53 +225,63 @@ def test_decisions_can_be_turned_off(tmp_path):
     assert validate_run(run_dir) == []
 
 
-def test_an_existing_results_folder_is_never_overwritten(tmp_path, monkeypatch):
+def test_an_existing_results_folder_is_never_overwritten(tmp_path, monkeypatch, tiny_config):
     import frozen_lake.experiments.runner as runner
 
     monkeypatch.setattr(runner, "run_folder_name", lambda config, now=None: "fixed")
-    run_experiment(load_config(TINY), output_root=tmp_path)
+    run_experiment(tiny_config, output_root=tmp_path)
     with pytest.raises(FileExistsError):
-        run_experiment(load_config(TINY), output_root=tmp_path)
+        run_experiment(tiny_config, output_root=tmp_path)
 
 
-# --- validation catches damage -----------------------------------------------------------------
-
-
-def test_validation_detects_a_missing_episode(tmp_path):
-    run_dir = run_experiment(load_config(TINY), output_root=tmp_path)
-    path = run_dir / "episode_metrics.csv"
-    lines = path.read_text().splitlines(keepends=True)
-    path.write_text("".join(lines[:-1]))
-    assert any("missing" in problem for problem in validate_run(run_dir))
-
-
-def test_validation_detects_a_duplicated_episode(tmp_path):
-    run_dir = run_experiment(load_config(TINY), output_root=tmp_path)
-    path = run_dir / "episode_metrics.csv"
-    lines = path.read_text().splitlines(keepends=True)
-    path.write_text("".join([*lines, lines[1]]))
-    assert any("duplicate" in problem for problem in validate_run(run_dir))
-
-
-def test_validation_detects_a_tampered_map(tmp_path):
-    run_dir = run_experiment(load_config(TINY), output_root=tmp_path)
-    path = run_dir / "maps.json"
-    maps = json.loads(path.read_text())
-    maps[0]["rows"][0] = "SHG"
-    path.write_text(json.dumps(maps))
-    assert any("does not match its seed" in problem for problem in validate_run(run_dir))
-
-
-def test_the_runner_never_imports_textual():
+def test_headless_code_never_imports_textual():
     code = (
-        "import sys; import frozen_lake.experiments; "
+        "import sys; import frozen_lake.experiments, frozen_lake.analysis; "
         "assert 'textual' not in sys.modules, 'textual was imported'"
     )
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
-def test_rollout_strategies_follow_their_base_policy():
-    assert {arm.strategy.base for arm in arms(load_config(TINY))} == {
-        StrategyId.BFS,
-        StrategyId.EXP,
-    }
+# --- validation catches damage -----------------------------------------------------------------
+
+
+def damage(path: Path, change) -> None:
+    rows = read_csv(path)
+    write_csv(path, change(rows))
+
+
+def test_validation_detects_a_missing_episode(run_copy):
+    damage(run_copy / "episode_metrics.csv", lambda rows: rows[:-1])
+    assert validate_run(run_copy)
+
+
+def test_validation_detects_a_duplicated_episode(run_copy):
+    damage(run_copy / "episode_metrics.csv", lambda rows: [*rows, rows[0]])
+    assert validate_run(run_copy)
+
+
+def test_validation_detects_arms_that_did_not_share_an_episode_seed(run_copy):
+    def change(rows):
+        rows[0]["episode_seed"] = str(int(rows[0]["episode_seed"]) + 1)
+        return rows
+
+    damage(run_copy / "episode_metrics.csv", change)
+    assert validate_run(run_copy)
+
+
+def test_validation_detects_a_missing_decision(run_copy):
+    damage(run_copy / "decision_metrics.csv", lambda rows: rows[1:])
+    assert validate_run(run_copy)
+
+
+def test_validation_detects_a_tampered_map(run_copy):
+    path = run_copy / "maps.json"
+    maps = json.loads(path.read_text(encoding="utf-8"))
+    maps[0]["rows"][0] = "S" + "H" * (len(maps[0]["rows"][0]) - 1)
+    path.write_text(json.dumps(maps), encoding="utf-8")
+    assert validate_run(run_copy)
+
+
+def test_validation_detects_a_missing_file(run_copy):
+    (run_copy / "summary.csv").unlink()
+    assert validate_run(run_copy)

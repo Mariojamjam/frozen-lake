@@ -240,6 +240,8 @@ class LakeView(Widget):
         self.agent: StateId = 0
         self.previous: StateId | None = None
         self.policy: Policy | None = None
+        # How the lake was last drawn: "tiles" with glyphs, the "compact" view, or "too-small".
+        self.mode = "tiles"
 
     def show(
         self, desc: MapDesc, agent: StateId, previous: StateId | None, policy: Policy | None
@@ -255,15 +257,18 @@ class LakeView(Widget):
         cell = cell_size(n, available_width, available_height)
         note = None
         if n * cell[0] <= available_width and lake_lines(n, cell[1]) <= available_height:
+            self.mode = "tiles"
             lake = render_lake(self.desc, self.agent, self.previous, self.policy, cell=cell)
             width, height = n * cell[0], lake_lines(n, cell[1])
         elif compact_fits(n, available_width, available_height):
+            self.mode = "compact"
             lake = render_compact_lake(self.desc, self.agent)
             width, height = n, compact_lines(n)
             if height + 2 <= available_height:
                 note = Text(COMPACT_NOTE[:available_width], style=LILAC)
                 height += 2
         else:
+            self.mode = "too-small"
             # Never crop silently: a cropped lake hides its bottom rows, where the goal is.
             return Text(
                 f"This {n}×{n} lake needs at least {n} × {compact_lines(n)} characters; "

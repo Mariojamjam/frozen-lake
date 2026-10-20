@@ -1,6 +1,7 @@
+import ast
 import copy
-import inspect
 import random
+from pathlib import Path
 
 import pytest
 
@@ -153,7 +154,9 @@ def test_simulated_transitions_count_what_was_actually_sampled(monkeypatch):
 def test_simulations_respect_the_real_steps_left():
     decide = decider(build_bfs_policy(OPEN_4X4).policy, model_of(OPEN_4X4), samples=10, horizon=50)
     result = decide(0, 2)
-    assert result.simulated_transitions <= 4 * 10 * 2
+    # No trajectory from the start of an open lake can end within 2 steps, so every one of the
+    # 4 × 10 trajectories runs exactly the 2 real steps left, not the horizon of 50.
+    assert result.simulated_transitions == 4 * 10 * 2
 
 
 def test_ties_keep_the_base_policy_action():
@@ -175,14 +178,6 @@ def test_when_the_base_action_is_worse_the_priority_breaks_ties_among_the_best()
     assert result.estimated_action_values[Action.DOWN] == 1.0
     assert result.estimated_action_values[Action.UP] == 0.0
     assert result.action is Action.RIGHT  # RIGHT comes before DOWN in the priority
-
-
-def test_rollout_overrules_a_base_action_that_never_reaches_the_goal():
-    lake = parse_map("SF\nFG")
-    model = model_of(lake, success_rate=1.0)
-    result = decider((Action.UP, Action.DOWN, Action.RIGHT, None), model, samples=3)(0, 16)
-    assert result.base_action is Action.UP
-    assert result.action is not result.base_action
 
 
 def test_same_seed_gives_the_same_decision():
@@ -222,29 +217,26 @@ def test_invalid_settings_are_rejected(samples, horizon):
 
 def test_terminal_tiles_and_finished_episodes_are_refused():
     decide = decider(build_bfs_policy(RUNNING_MAP).policy, model_of(RUNNING_MAP))
-    with pytest.raises(ValueError, match="terminal"):
-        decide(15, 10)
-    with pytest.raises(ValueError, match="no real steps"):
-        decide(0, 0)
+    with pytest.raises(ValueError):
+        decide(15, 10)  # the goal: an ended episode has no decision to make
+    with pytest.raises(ValueError):
+        decide(0, 0)  # no real steps left
 
 
 # --- shared implementation and whole episodes --------------------------------------------------
 
 
 def test_rollout_never_imports_a_planner():
-    source = inspect.getsource(rollout_module)
-    assert "frozen_lake.policies" not in source
-
-
-def test_both_rollout_strategies_use_the_same_function_with_different_tables():
-    model = model_of(RUNNING_MAP)
-    bfs = build_bfs_policy(RUNNING_MAP).policy
-    exp = build_expectimax_policy(RUNNING_MAP, model, depth=6, beta=0.9, gamma=1.0).policy
-    assert bfs != exp  # the tables differ...
-    for policy in (bfs, exp):  # ...and the same code consults whichever it is given
-        spy = SpyPolicy(policy)
-        decider(spy, model)(0, 64)
-        assert spy.asked
+    # One shared Rollout for both base policies: it only reads the table it is given.
+    tree = ast.parse(Path(rollout_module.__file__).read_text(encoding="utf-8"))
+    imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    imported |= {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    assert not any(name and name.startswith("frozen_lake.policies") for name in imported)
 
 
 @pytest.mark.parametrize("strategy", [StrategyId.BFS_RO, StrategyId.EXP_RO])

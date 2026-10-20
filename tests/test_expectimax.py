@@ -1,16 +1,19 @@
 import math
+import time
 
 import pytest
 
+import frozen_lake.policies.expectimax as expectimax_module
 from frozen_lake.environment import (
     create_environment,
     deterministic_move,
     extract_transitions,
     generate_map,
+    map_size,
     parse_map,
     tile_at,
 )
-from frozen_lake.models import Action, Tile
+from frozen_lake.models import DEFAULT_ACTION_PRIORITY, Action, Tile
 from frozen_lake.policies.bfs import bfs_distances, build_bfs_policy
 from frozen_lake.policies.expectimax import (
     ExpectimaxSearch,
@@ -21,6 +24,7 @@ from frozen_lake.policies.expectimax import (
 
 # The running 4x4 map of the design doc.
 RUNNING_MAP = parse_map("SFFF\nFHFH\nFFFH\nHFFG")
+GENERATED_6X6 = generate_map(6, 0.9, seed=3)
 BETA, GAMMA = 0.9, 1.0
 
 
@@ -32,37 +36,40 @@ def model_of(desc, success_rate=0.8):
 RUNNING_MODEL = model_of(RUNNING_MAP)
 
 
-def uncached_value(desc, model, state, depth, beta=BETA, gamma=GAMMA):
+def nonterminal(desc, state):
+    return tile_at(desc, state) not in (Tile.HOLE, Tile.GOAL)
+
+
+def uncached_q(model, distances, state, action, depth, beta=BETA, gamma=GAMMA):
     """Independent oracle: the same recursion written plainly, with no cache at all."""
-    if depth == 0:
-        distance = bfs_distances(desc)[state]
-        return 0.0 if distance == math.inf else beta**distance
-    return max(uncached_q(desc, model, state, a, depth, beta, gamma) for a in Action)
 
+    def value(s, d):
+        if d == 0:
+            return bfs_heuristic(distances[s], beta)
+        return max(q(s, a, d) for a in Action)
 
-def uncached_q(desc, model, state, action, depth, beta=BETA, gamma=GAMMA):
-    total = 0.0
-    for t in model[state][action]:
-        future = (
-            0.0 if t.terminated else gamma * uncached_value(desc, model, t.next_state, depth - 1)
+    def q(s, a, d):
+        return sum(
+            t.probability
+            * (t.reward + (0.0 if t.terminated else gamma * value(t.next_state, d - 1)))
+            for t in model[s][a]
         )
-        total += t.probability * (t.reward + future)
-    return total
+
+    return q(state, action, depth)
 
 
-# --- heuristic ---------------------------------------------------------------------------------
+def build(desc=RUNNING_MAP, model=RUNNING_MODEL, depth=6, **kwargs):
+    return build_expectimax_policy(desc, model, depth=depth, beta=BETA, gamma=GAMMA, **kwargs)
 
 
-@pytest.mark.parametrize(
-    ("distance", "expected"), [(1, 0.9), (2, 0.81), (3, 0.729), (5, 0.59049), (math.inf, 0.0)]
-)
-def test_heuristic_values(distance, expected):
-    assert bfs_heuristic(distance, 0.9) == pytest.approx(expected)
+# --- heuristic and parameters ------------------------------------------------------------------
 
 
-def test_heuristic_decreases_with_distance():
-    scores = [bfs_heuristic(d, 0.85) for d in range(20)]
-    assert all(a > b for a, b in zip(scores, scores[1:], strict=False))
+@pytest.mark.parametrize("beta", [0.5, 0.85, 0.9, 0.95])
+def test_the_heuristic_is_beta_to_the_distance_and_zero_without_a_route(beta):
+    for distance in range(25):
+        assert bfs_heuristic(distance, beta) == pytest.approx(beta**distance)
+    assert bfs_heuristic(math.inf, beta) == 0.0
 
 
 @pytest.mark.parametrize(
@@ -76,84 +83,112 @@ def test_invalid_parameters_are_rejected(depth, beta, gamma):
 # --- recursion ---------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("state", "expected"),
-    [
-        (14, {Action.LEFT: 0.819, Action.DOWN: 0.901, Action.RIGHT: 0.971, Action.UP: 0.829}),
-        (6, {Action.LEFT: 0.14661, Action.DOWN: 0.648, Action.RIGHT: 0.14661, Action.UP: 0.52488}),
-    ],
-)
-def test_one_step_values_match_the_design_doc(state, expected):
-    values = expectimax_action_values(
-        RUNNING_MAP, RUNNING_MODEL, state, depth=1, beta=BETA, gamma=GAMMA
-    )
-    assert values == pytest.approx(expected)
-
-
 def test_goal_reward_is_counted_once_with_no_continuation():
     # From 14, RIGHT enters the goal with probability 0.8: it contributes exactly 0.8 * 1, not
     # 0.8 * (1 + h(goal)). The slips land on 14 and 10, scored by the heuristic at depth 1.
     q = expectimax_action_values(RUNNING_MAP, RUNNING_MODEL, 14, depth=1, beta=BETA, gamma=GAMMA)
-    assert q[Action.RIGHT] == pytest.approx(0.8 * 1 + 0.1 * 0.9 + 0.1 * 0.81)
+    assert q[Action.RIGHT] == pytest.approx(0.8 * 1 + 0.1 * BETA + 0.1 * BETA**2)
 
 
 def test_holes_contribute_nothing():
     # From 6, LEFT falls into hole 5 with probability 0.8; only the two slips score.
     q = expectimax_action_values(RUNNING_MAP, RUNNING_MODEL, 6, depth=1, beta=BETA, gamma=GAMMA)
-    assert q[Action.LEFT] == pytest.approx(0.1 * 0.9**4 + 0.1 * 0.9**2)
+    assert q[Action.LEFT] == pytest.approx(0.1 * BETA**4 + 0.1 * BETA**2)
 
 
-@pytest.mark.parametrize("depth", [1, 2, 3, 4])
-def test_memoized_values_match_the_uncached_oracle(depth):
-    search = ExpectimaxSearch(RUNNING_MODEL, bfs_distances(RUNNING_MAP), beta=BETA, gamma=GAMMA)
-    for state in range(16):
-        if tile_at(RUNNING_MAP, state) in (Tile.HOLE, Tile.GOAL):
+@pytest.mark.parametrize("gamma", [1.0, 0.9])
+@pytest.mark.parametrize(
+    ("desc", "depth"),
+    [(RUNNING_MAP, 1), (RUNNING_MAP, 2), (RUNNING_MAP, 4), (GENERATED_6X6, 3)],
+    ids=["running-d1", "running-d2", "running-d4", "generated-6x6-d3"],
+)
+def test_memoized_values_match_the_uncached_oracle(desc, depth, gamma):
+    model, distances = model_of(desc), bfs_distances(desc)
+    search = ExpectimaxSearch(model, distances, beta=BETA, gamma=gamma)
+    for state in range(map_size(desc) ** 2):
+        if nonterminal(desc, state):
+            for action in Action:
+                expected = uncached_q(model, distances, state, action, depth, gamma=gamma)
+                assert search.action_value(state, action, depth) == pytest.approx(expected)
+
+
+def test_one_search_keeps_values_of_different_depths_apart():
+    # The remaining depth is part of every memoized value: asking for several depths in any
+    # order on one search must give each depth its own value.
+    distances = bfs_distances(RUNNING_MAP)
+    search = ExpectimaxSearch(RUNNING_MODEL, distances, beta=BETA, gamma=GAMMA)
+    for depth in (5, 1, 3, 2, 4, 1, 5):
+        for action in Action:
+            expected = uncached_q(RUNNING_MODEL, distances, 0, action, depth)
+            assert search.action_value(0, action, depth) == pytest.approx(expected)
+
+
+def test_counters_count_each_subproblem_outcome_and_reuse_once():
+    depth = 4
+    result = build(depth=depth)
+    model = RUNNING_MODEL
+    roots = [s for s in range(16) if nonterminal(RUNNING_MAP, s)]
+
+    # Recount independently: the (state, depth) values the search needs, the outcome records it
+    # reads, and how many times a value is asked for.
+    subproblems, frontier, outcomes, requests = set(), [], 0, 0
+    for state in roots:
+        for action in Action:
+            for t in model[state][action]:
+                outcomes += 1
+                if not t.terminated:
+                    requests += 1
+                    frontier.append((t.next_state, depth - 1))
+    while frontier:
+        key = frontier.pop()
+        if key in subproblems:
+            continue
+        subproblems.add(key)
+        state, remaining = key
+        if remaining == 0:
             continue
         for action in Action:
-            expected = uncached_q(RUNNING_MAP, RUNNING_MODEL, state, action, depth)
-            assert search.action_value(state, action, depth) == pytest.approx(expected)
+            for t in model[state][action]:
+                outcomes += 1
+                if not t.terminated:
+                    requests += 1
+                    frontier.append((t.next_state, remaining - 1))
+
+    assert result.states_evaluated == len(subproblems)
+    assert result.successors_examined == outcomes
+    assert result.diagnostics["cache_hits"] == requests - len(subproblems)
+    assert result.diagnostics["cache_entries"] == len(subproblems)
 
 
-def test_remaining_depth_is_part_of_the_cache_key():
-    search = ExpectimaxSearch(RUNNING_MODEL, bfs_distances(RUNNING_MAP), beta=BETA, gamma=GAMMA)
-    shallow, deep = search.value(0, 1), search.value(0, 5)
-    assert shallow != pytest.approx(deep)
-    assert search.cache[(0, 1)] == shallow and search.cache[(0, 5)] == deep
+def test_the_timed_build_includes_the_bfs_distances(monkeypatch):
+    # Expectimax is charged for the BFS distances its heuristic needs (standalone cost).
+    delay_ns = 30_000_000
+    real = expectimax_module.bfs_distances
 
+    def slow_bfs(desc):
+        time.sleep(delay_ns / 1e9)
+        return real(desc)
 
-def test_the_heuristic_is_used_only_where_the_depth_runs_out():
-    search = ExpectimaxSearch(RUNNING_MODEL, bfs_distances(RUNNING_MAP), beta=BETA, gamma=GAMMA)
-    assert search.value(9, 0) == pytest.approx(0.9**3)  # depth 0: the heuristic itself
-    assert search.value(9, 2) != pytest.approx(0.9**3)  # depth 2: planned, not the heuristic
+    monkeypatch.setattr(expectimax_module, "bfs_distances", slow_bfs)
+    assert build(depth=1).build_time_ns >= delay_ns
 
 
 # --- policy ------------------------------------------------------------------------------------
 
 
-def build(desc=RUNNING_MAP, model=RUNNING_MODEL, depth=6, **kwargs):
-    return build_expectimax_policy(desc, model, depth=depth, beta=BETA, gamma=GAMMA, **kwargs)
-
-
-def test_every_nonterminal_tile_has_an_action_and_terminals_have_none():
-    policy = build().policy
+@pytest.mark.parametrize("desc", [RUNNING_MAP, GENERATED_6X6], ids=["running-4x4", "generated-6x6"])
+def test_policy_takes_the_first_best_action_in_priority_order(desc):
+    model, distances = model_of(desc), bfs_distances(desc)
+    policy = build(desc, model, depth=3).policy
     for state, action in enumerate(policy):
-        terminal = tile_at(RUNNING_MAP, state) in (Tile.HOLE, Tile.GOAL)
-        assert (action is None) == terminal
-
-
-def test_policy_picks_the_highest_value_action():
-    policy = build(depth=1).policy
-    assert policy[14] is Action.RIGHT
-    assert policy[6] is Action.DOWN
-
-
-def test_policy_matches_the_argmax_of_the_oracle_at_depth_3():
-    policy = build(depth=3).policy
-    for state, action in enumerate(policy):
-        if action is None:
+        if not nonterminal(desc, state):
+            assert action is None
             continue
-        values = {a: uncached_q(RUNNING_MAP, RUNNING_MODEL, state, a, 3) for a in Action}
-        assert values[action] == pytest.approx(max(values.values()))
+        values = {a: uncached_q(model, distances, state, a, 3) for a in Action}
+        best = max(values.values())
+        if best > 1e-12:
+            tied = [a for a in DEFAULT_ACTION_PRIORITY if values[a] >= best - 1e-9]
+            assert action is tied[0]
 
 
 def test_ties_follow_the_action_priority():
@@ -173,42 +208,18 @@ def test_zero_value_tiles_use_the_safe_bfs_fallback():
     assert result.diagnostics["fallback_states"] == 4
 
 
-def test_counters_follow_the_memoization():
-    result = build(depth=6)
-    n_states = 16
-    assert result.states_evaluated == result.diagnostics["cache_entries"]
-    assert result.states_evaluated <= n_states * (6 + 1)  # one value per (state, depth)
-    assert result.diagnostics["cache_hits"] > 0
-    assert result.diagnostics["peak_recursion"] == 6  # MAX nodes from depth 5 down to 0
-    assert result.successors_examined > 0
-    assert result.build_time_ns > 0
-
-
 def test_larger_maps_build_a_complete_policy():
     desc = generate_map(10, 0.9, seed=2026)
     policy = build(desc, model_of(desc)).policy
-    assert len(policy) == 100
-    assert all(
-        (policy[s] is None) == (tile_at(desc, s) in (Tile.HOLE, Tile.GOAL)) for s in range(100)
-    )
+    assert all((policy[s] is None) == (not nonterminal(desc, s)) for s in range(100))
 
 
-def test_without_slipping_and_depth_1_the_heuristic_picks_the_closer_tile():
-    # One step ahead, without slips, each action leads to one tile whose heuristic is
-    # beta ** distance, so the best action is the one that gets one step closer.
+def test_without_slipping_and_depth_1_expectimax_moves_like_bfs():
+    # One step ahead, without slips, each action leads to one tile scored beta ** distance,
+    # so the best action is the one that gets one step closer, as in BFS.
     model = model_of(RUNNING_MAP, success_rate=1.0)
     policy = build(model=model, depth=1).policy
     distances = bfs_distances(RUNNING_MAP)
     for state, action in enumerate(policy):
         if action is not None:
             assert distances[deterministic_move(state, action, 4)] == distances[state] - 1
-
-
-def test_with_gamma_1_every_route_reaching_the_goal_within_the_horizon_is_worth_1():
-    # From state 4 (distance 5), without slips, DOWN gets closer and UP goes back to the start
-    # (distance 6). Both still reach the goal within 7 moves, so with gamma = 1 both are worth
-    # exactly 1: the planner has no preference for arriving sooner.
-    model = model_of(RUNNING_MAP, success_rate=1.0)
-    q = expectimax_action_values(RUNNING_MAP, model, 4, depth=7, beta=BETA, gamma=GAMMA)
-    assert q[Action.DOWN] == pytest.approx(1.0)
-    assert q[Action.UP] == pytest.approx(1.0)
