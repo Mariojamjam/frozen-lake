@@ -69,7 +69,7 @@ The primary metric is **success rate versus amortized compute time per episode**
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/). It downloads Python 3.12 automatically if needed.
-- Optional: [just](https://just.systems/) for short task aliases.
+- Linux, macOS or Windows, with a terminal that shows colors and Unicode (any current one, including Windows Terminal).
 - Optional: Docker and VS Code with the Dev Containers extension.
 
 No database, web server, GPU or browser is required.
@@ -79,45 +79,55 @@ No database, web server, GPU or browser is required.
 ```bash
 git clone https://github.com/Mariojamjam/frozen-lake.git
 cd frozen-lake
-uv sync --locked
-uv run frozen-lake --help
+uv tool install --editable .     # once: puts the frozen-lake command on the PATH
+frozen-lake                      # every command and the typical workflow
 ```
 
-For the command guide and the study design, see [Documentation](#documentation).
+If uv says its tools folder is not on the PATH, run `uv tool update-shell` once and open a new terminal. Without installing anything, `uv sync --locked` followed by `uv run frozen-lake …` runs every command in the project's locked environment; see the [command guide](docs/commands.md#2-install-the-frozen-lake-command) for both options. Run the commands from the project folder.
+
+Every command explains itself with `-h`: what it does, its options grouped by topic, and examples to copy (`frozen-lake episode -h`).
 
 ### Explore the lake
 
 ```bash
-uv run frozen-lake tui --size 6 --map-seed 42 --episode-seed 42
+frozen-lake tui -s 6
 ```
 
-Choose an intended direction with the arrow keys and press **Space** to take one real step. The ice may slip the agent sideways (10% to each side), and the screen shows where the agent meant to go and where it actually landed. **R** replays the same episode seed, so the same actions reproduce the same slips; **N** tries the next episode seed (new slips on the same lake); **G** generates the next map seed (a new lake, with its own BFS policy); **?** shows help; **Q** quits. Letter keys work in either case. Run `uv run frozen-lake tui --help` for every option (map size, seeds, frozen-tile probability, step limit, intended-move probability).
+Choose an intended direction with the arrow keys and press **Space** to take one real step. The ice may slip the agent sideways (10% to each side), and the screen shows where the agent meant to go and where it actually landed. **R** replays the same episode seed, so the same actions reproduce the same slips; **N** tries the next episode seed (new slips on the same lake); **G** generates the next map seed (a new lake); **?** shows help; **Q** quits. The lake size (`-s`) is required; `frozen-lake tui -h` lists every other option, such as the seeds (`-m`, `-e`).
 
-The explorer starts in **manual** mode, where the arrow keys choose. Press **1** for the **BFS policy**, **2** for the **Expectimax policy**, **3** for **Rollout over BFS** and **4** for **Rollout over Expectimax**, and **M** to return to manual; switching mode restarts the episode. **A** plays the episode automatically. In every mode the status panel shows what each base policy recommends from the current tile; in Rollout modes a table shows every action's estimate and whether Rollout overrode its base policy. **P** cycles the arrows drawn on the lake between off, the BFS policy and the Expectimax policy: one recommended move for every tile, not a single path.
+The explorer starts in **manual** mode, where the arrow keys choose. Press **1** for the **BFS policy**, **2** for the **Expectimax policy**, **3** for **Rollout over BFS** and **4** for **Rollout over Expectimax**, and **M** to return to manual; switching mode restarts the episode. **A** plays the episode automatically. In Rollout modes a table shows every action's estimate and whether Rollout overrode its base policy. **P** cycles the arrows drawn on the lake between off, the BFS policy and the Expectimax policy.
 
-### Play a headless episode
+The settings can change without leaving the explorer: **+** and **-** move N, the Rollout trajectories per action, along the experiment's budgets; **]** and **[** change the Expectimax depth; **S** opens a window to type N, depth, beta and horizon. Each change restarts the episode on the same seed, so the same slips meet the new decisions.
+
+### Play one episode
 
 ```bash
-uv run frozen-lake episode --strategy BFS --size 6 --map-seed 42 --episode-seed 7
+frozen-lake episode
 ```
 
-Prints every real step (state, action, where the agent landed, whether it slipped) and a summary with the ending (`goal`, `hole` or `timeout`) and the agent's computation time. Add `--quiet` for the summary only. Use `--strategy EXP` for Expectimax (configured by `--depth` and `--beta`), and `--strategy BFS-RO` or `EXP-RO` for Monte Carlo Rollout over either policy (configured by `--rollouts` and `--horizon`).
+In a terminal, with no options, a short form opens to choose the strategy and its settings. It enables only the settings that strategy uses, marks invalid values, and shows the equivalent command line as you type. The episode then prints every real step (state, action, where the agent landed, whether it slipped) and a summary with the ending (`goal`, `hole` or `timeout`) and the agent's computation time. The same episode from the command line:
+
+```bash
+frozen-lake episode -S EXP-RO -s 6 -e 7 -n 100    # Rollout over Expectimax, N = 100
+```
+
+`-S` picks the strategy (`BFS`, `EXP`, `BFS-RO`, `EXP-RO`), `-q` prints only the summary, and `frozen-lake episode -h` lists every option.
 
 ### Run the experiment
 
 ```bash
-uv run frozen-lake validate --config configs/experiment.toml             # check the configuration
-uv run frozen-lake benchmark --config configs/experiment.toml --dry-run  # describe the run
-uv run frozen-lake benchmark --config configs/experiment.toml            # run it
+frozen-lake validate                  # check the configuration
+frozen-lake benchmark --dry-run       # describe the run
+frozen-lake benchmark                 # run it (asks before starting)
 ```
 
-`configs/experiment.toml` describes the whole experiment: lake sizes, maps, episodes, Rollout sample counts and the Expectimax settings. `benchmark` generates every map, builds and times each base policy, plays every strategy on the same maps and episode seeds, and writes raw CSV results, a summary and the run's metadata to a new folder under `results/generated/`, then checks them for completeness.
+`configs/experiment.toml` describes the whole experiment: lake sizes, maps, episodes, Rollout sample counts and the Expectimax settings; `-i` gives another configuration and `-o` another output folder. `benchmark` generates every map, builds and times each base policy, plays every strategy on the same maps and episode seeds, and writes raw CSV results, a summary and the run's metadata to a new folder under `results/generated/`, then checks them for completeness.
 
 The study's run is kept in [`results/canonical/experiment-1/`](results/canonical/experiment-1/): its configuration, maps, raw CSV results, metadata, and the tables and figures in `analysis/`. To check it and regenerate the analysis from the saved data:
 
 ```bash
-uv run frozen-lake validate --run results/canonical/experiment-1
-uv run frozen-lake plot --run results/canonical/experiment-1
+frozen-lake validate -i results/canonical/experiment-1
+frozen-lake plot -i results/canonical/experiment-1
 ```
 
 ## Documentation
@@ -135,15 +145,11 @@ uv run ruff format --check .  # format check
 uv run ruff format .          # apply formatting
 ```
 
-The same commands are available as `just` recipes (`just test`, `just lint`, `just format`), and `just ci` runs everything CI runs. If `just` is not installed, you can run it without installing:
-
-```bash
-uvx --from rust-just just ci
-```
+These run in the project's locked environment (`uv sync --locked` first). Running them in this order before pushing checks what CI checks.
 
 ### Dev Container
 
-Open the folder in VS Code and choose **Dev Containers: Reopen in Container**. The image provides Python 3.12, a pinned `uv` and `just`, and runs `uv sync --locked` on creation.
+Open the folder in VS Code and choose **Dev Containers: Reopen in Container**. The image provides Python 3.12 and a pinned `uv`, runs `uv sync --locked` on creation, and puts the project's environment on the PATH, so `frozen-lake` works in its terminal right away.
 
 ### Continuous integration
 
@@ -169,12 +175,11 @@ frozen-lake/
 │   ├── rollout.py        # Monte Carlo Rollout over any base policy, and its exact reference
 │   ├── experiments/      # The experiment runner: config, seeds, matrix, runner, records, validation
 │   ├── analysis/         # Analysis of a finished run: bootstrap, tables, figures (the `plot` command)
-│   └── tui/              # Textual explorer (app.py, app.tcss, colors.py)
+│   └── tui/              # Textual explorer and the episode form
 ├── tests/                # pytest suite
 ├── REPORT.md             # Research report
 ├── pyproject.toml        # Project metadata, dependencies, Ruff/pytest config
-├── uv.lock               # Locked dependency versions
-└── justfile              # Optional task aliases
+└── uv.lock               # Locked dependency versions
 ```
 
 ## References

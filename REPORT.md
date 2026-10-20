@@ -399,8 +399,8 @@ The commands below use [uv](https://docs.astral.sh/uv/); [`docs/commands.md`](do
 ```bash
 uv sync --locked                                              # install the exact dependencies
 
-uv run frozen-lake validate --run results/canonical/experiment-1   # check the saved run
-uv run frozen-lake plot --run results/canonical/experiment-1       # regenerate tables and figures
+uv run frozen-lake validate -i results/canonical/experiment-1   # check the saved run
+uv run frozen-lake plot -i results/canonical/experiment-1       # regenerate tables and figures
 ```
 
 `plot` reads only the saved CSV files and never runs an agent; with its default seed it reproduces the tables in this report exactly.
@@ -408,8 +408,8 @@ uv run frozen-lake plot --run results/canonical/experiment-1       # regenerate 
 To run the whole experiment again (about half an hour on the machine above):
 
 ```bash
-uv run frozen-lake benchmark --config configs/experiment.toml --dry-run  # describe the run
-uv run frozen-lake benchmark --config configs/experiment.toml            # run it
+uv run frozen-lake benchmark --dry-run    # describe the run
+uv run frozen-lake benchmark              # run it (asks before starting)
 ```
 
 The new run goes to `results/generated/`. Maps, seeds, decisions and outcomes reproduce exactly; times do not, since they depend on the machine and its load.
