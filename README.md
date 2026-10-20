@@ -72,8 +72,6 @@ The primary metric is **success rate versus amortized compute time per episode**
 - Linux, macOS or Windows, with a terminal that shows colors and Unicode (any current one, including Windows Terminal).
 - Optional: Docker and VS Code with the Dev Containers extension.
 
-No database, web server, GPU or browser is required.
-
 ## Quickstart
 
 ```bash
