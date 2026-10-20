@@ -101,7 +101,7 @@ def run_experiment(
     files = [run_dir / "policy_metrics.csv", run_dir / "episode_metrics.csv"]
     if config.experiment.write_decisions:
         files.append(run_dir / "decision_metrics.csv")
-    handles = [path.open("w", newline="") for path in files]
+    handles = [path.open("w", newline="", encoding="utf-8") for path in files]
     try:
         policy_writer = csv.DictWriter(handles[0], fieldnames=POLICY_COLUMNS)
         episode_writer = csv.DictWriter(handles[1], fieldnames=EPISODE_COLUMNS)

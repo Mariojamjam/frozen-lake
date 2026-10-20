@@ -1,5 +1,6 @@
 """Single-screen Textual explorer: step through real episodes by hand or with a base policy."""
 
+import random
 from collections.abc import Callable
 
 from rich.text import Text
@@ -7,9 +8,10 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
+from textual.screen import ModalScreen
 from textual.timer import Timer
 from textual.widget import Widget
-from textual.widgets import DataTable, Footer, Header, RichLog, Static
+from textual.widgets import Button, DataTable, Footer, Header, Input, Label, RichLog, Static
 
 from frozen_lake.environment import (
     MapDesc,
@@ -47,6 +49,7 @@ from frozen_lake.tui.colors import (
     SNOW,
     VIOLET,
 )
+from frozen_lake.tui.fields import Field, show
 
 TILE_GLYPHS = {Tile.START: "S", Tile.FROZEN: "·", Tile.HOLE: "○", Tile.GOAL: "★"}
 AGENT_GLYPH = "●"
@@ -67,7 +70,21 @@ HELP = (
     "P cycles the policy arrows on the lake: off, BFS, Expectimax. "
     "R replays the episode seed, N tries the next episode "
     "seed (new slips, same lake), G generates the next map (new lake). Switching mode restarts "
-    "the episode."
+    "the episode. + and - change N, the Rollout trajectories per action; ] and [ change the "
+    "Expectimax depth; S opens the settings to type N, depth, beta and horizon. Every change "
+    "restarts the episode on the same seed, so the same slips meet the new decisions."
+)
+
+# Steps of N for + and -: the sampling budgets of the experiment.
+ROLLOUT_STEPS = (10, 25, 50, 100, 200, 400, 800)
+# Deepest Expectimax reachable with ]; the settings accept any depth.
+MAX_QUICK_DEPTH = 12
+
+SETTINGS_FIELDS = (
+    Field("rollouts", "N (trajectories per action)", int, low=1),
+    Field("depth", "Expectimax depth", int, low=1),
+    Field("beta", "Expectimax beta", float, low=0, high=1, open_low=True, open_high=True),
+    Field("horizon", "Rollout horizon", int, low=1, optional=True),
 )
 
 
@@ -110,6 +127,60 @@ def cell_size(n: int, width: int, height: int) -> tuple[int, int]:
     return CELL_SIZES[-1]
 
 
+def tile_colors(
+    desc: MapDesc, state: StateId, agent: StateId, previous: StateId | None, policy: Policy | None
+) -> tuple[str, str, str]:
+    """Background, glyph and glyph color of a tile, with the agent and the policy applied."""
+    n = map_size(desc)
+    row, col = divmod(state, n)
+    tile = tile_at(desc, state)
+    background = tile_background(tile, row, col)
+    glyph, glyph_color = tile_glyph(tile)
+    if state == agent:
+        # Where the episode ends, the agent takes that ending's color, so a fall stands out.
+        background = {Tile.HOLE: ROSE, Tile.GOAL: AURORA}.get(tile, ORCHID)
+        glyph, glyph_color = AGENT_GLYPH, NIGHT
+    elif state == previous and tile == Tile.FROZEN:
+        glyph, glyph_color = PREVIOUS_GLYPH, ORCHID
+    elif policy is not None and policy[state] is not None and tile == Tile.FROZEN:
+        glyph, glyph_color = ARROWS[policy[state]], VIOLET
+    return background, glyph, glyph_color
+
+
+COMPACT_NOTE = "compact view · enlarge for symbols"
+
+
+def compact_lines(n: int) -> int:
+    """Lines an n×n lake takes in the compact view: two tile rows per line."""
+    return (n + 1) // 2
+
+
+def compact_fits(n: int, width: int, height: int) -> bool:
+    return n <= width and compact_lines(n) <= height
+
+
+def render_compact_lake(desc: MapDesc, agent: StateId) -> Text:
+    """Draw each tile as half a character, two tile rows per line, for lakes too large for glyphs.
+
+    Every character is "▀" colored as the upper tile (foreground) over the lower one
+    (background). A terminal cell is about twice as tall as it is wide, so each tile is about
+    square. Tiles keep their colors (the agent, the goal and the holes stay visible) but lose
+    their glyphs and the policy arrows, which need a whole character.
+    """
+    n = map_size(desc)
+    text = Text(no_wrap=True, overflow="crop")
+    for line in range(compact_lines(n)):
+        if line:
+            text.append("\n")
+        for col in range(n):
+            upper = 2 * line * n + col
+            lower = upper + n
+            top = tile_colors(desc, upper, agent, None, None)[0]
+            bottom = NIGHT if lower >= n * n else tile_colors(desc, lower, agent, None, None)[0]
+            text.append("▀", style=f"{top} on {bottom}")
+    return text
+
+
 def render_lake(
     desc: MapDesc,
     agent: StateId,
@@ -141,23 +212,7 @@ def render_lake(
     def glyph_line(row: int) -> int:
         return (shift + 2 * height * row + height - 1) // 2
 
-    def colors(state: int) -> tuple[str, str, str]:
-        """Background, glyph and glyph color of a tile, with the agent and policy applied."""
-        row, col = divmod(state, n)
-        tile = tile_at(desc, state)
-        background = tile_background(tile, row, col)
-        glyph, glyph_color = tile_glyph(tile)
-        if state == agent:
-            # Where the episode ends, the agent takes that ending's color, so a fall stands out.
-            background = {Tile.HOLE: ROSE, Tile.GOAL: AURORA}.get(tile, ORCHID)
-            glyph, glyph_color = AGENT_GLYPH, NIGHT
-        elif state == previous and tile == Tile.FROZEN:
-            glyph, glyph_color = PREVIOUS_GLYPH, ORCHID
-        elif policy is not None and policy[state] is not None and tile == Tile.FROZEN:
-            glyph, glyph_color = ARROWS[policy[state]], VIOLET
-        return background, glyph, glyph_color
-
-    tiles = [colors(state) for state in range(n * n)]
+    tiles = [tile_colors(desc, state, agent, previous, policy) for state in range(n * n)]
     # Never wrap: a wrapped line would push the rest of a tile row onto the next line.
     text = Text(no_wrap=True, overflow="crop")
     for line in range(lake_lines(n, height)):
@@ -185,6 +240,8 @@ class LakeView(Widget):
         self.agent: StateId = 0
         self.previous: StateId | None = None
         self.policy: Policy | None = None
+        # How the lake was last drawn: "tiles" with glyphs, the "compact" view, or "too-small".
+        self.mode = "tiles"
 
     def show(
         self, desc: MapDesc, agent: StateId, previous: StateId | None, policy: Policy | None
@@ -198,10 +255,30 @@ class LakeView(Widget):
         n = map_size(self.desc)
         available_width, available_height = self.size.width, self.size.height
         cell = cell_size(n, available_width, available_height)
-        lake = render_lake(self.desc, self.agent, self.previous, self.policy, cell=cell)
+        note = None
+        if n * cell[0] <= available_width and lake_lines(n, cell[1]) <= available_height:
+            self.mode = "tiles"
+            lake = render_lake(self.desc, self.agent, self.previous, self.policy, cell=cell)
+            width, height = n * cell[0], lake_lines(n, cell[1])
+        elif compact_fits(n, available_width, available_height):
+            self.mode = "compact"
+            lake = render_compact_lake(self.desc, self.agent)
+            width, height = n, compact_lines(n)
+            if height + 2 <= available_height:
+                note = Text(COMPACT_NOTE[:available_width], style=LILAC)
+                height += 2
+        else:
+            self.mode = "too-small"
+            # Never crop silently: a cropped lake hides its bottom rows, where the goal is.
+            return Text(
+                f"This {n}×{n} lake needs at least {n} × {compact_lines(n)} characters; "
+                f"the lake panel has {available_width} × {available_height}.\n"
+                "Enlarge the window, make the terminal font smaller, or choose a smaller lake.",
+                style=f"bold {AMBER}",
+            )
         # Center the drawing in the space the tiles leave free.
-        left = " " * max((available_width - n * cell[0]) // 2, 0)
-        top = max((available_height - lake_lines(n, cell[1])) // 2, 0)
+        left = " " * max((available_width - width) // 2, 0)
+        top = max((available_height - height) // 2, 0)
         centered = Text(no_wrap=True, overflow="crop")
         centered.append("\n" * top)
         for index, line in enumerate(lake.split("\n")):
@@ -209,6 +286,9 @@ class LakeView(Widget):
                 centered.append("\n")
             centered.append(left)
             centered.append_text(line)
+        if note is not None:
+            centered.append("\n\n" + " " * max((available_width - len(note)) // 2, 0))
+            centered.append_text(note)
         return centered
 
 
@@ -229,8 +309,84 @@ def render_legend() -> Text:
             text.append("\n")
     text.append("\nModes  ", style="bold")
     text.append("m manual · 1 BFS · 2 EXP\n", style=LILAC)
-    text.append("       3 BFS-RO · 4 EXP-RO", style=LILAC)
+    text.append("       3 BFS-RO · 4 EXP-RO\n", style=LILAC)
+    text.append("Tune   ", style="bold")
+    text.append("+/- N · ]/[ depth · s settings", style=LILAC)
     return text
+
+
+class SettingsScreen(ModalScreen[dict | None]):
+    """Type exact values for N, the Expectimax depth and beta, and the Rollout horizon."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, values: dict, default_horizon: int) -> None:
+        super().__init__()
+        self.values = values
+        self.default_horizon = default_horizon
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="settings"):
+            yield Static("Settings · applying restarts the episode on the same seed", id="title")
+            for field in SETTINGS_FIELDS:
+                with Horizontal(classes="row"):
+                    yield Label(field.label)
+                    yield Input(
+                        show(self.values[field.key]),
+                        id=field.key,
+                        type="integer" if field.kind is int else "number",
+                        placeholder=f"{self.default_horizon} (2 × size²)"
+                        if field.key == "horizon"
+                        else "",
+                    )
+            yield Static(id="problems")
+            with Horizontal(classes="buttons"):
+                yield Button("Apply", id="apply", variant="primary")
+                yield Button("Cancel", id="cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#settings").border_title = "Settings"
+        self._check()
+
+    def _read(self) -> tuple[dict, list[str]]:
+        values, problems = {}, []
+        for field in SETTINGS_FIELDS:
+            entry = self.query_one(f"#{field.key}", Input)
+            value, problem = field.parse(entry.value)
+            entry.set_class(problem is not None, "-invalid")
+            values[field.key] = value
+            if problem:
+                problems.append(problem)
+        return values, problems
+
+    def _check(self) -> bool:
+        _, problems = self._read()
+        self.query_one("#problems", Static).update(
+            Text("\n".join(problems), style=ROSE)
+            if problems
+            else Text("Enter applies, Esc cancels.", style=LILAC)
+        )
+        self.query_one("#apply", Button).disabled = bool(problems)
+        return not problems
+
+    def on_input_changed(self) -> None:
+        self._check()
+
+    def on_input_submitted(self) -> None:
+        self.action_apply()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "apply":
+            self.action_apply()
+        else:
+            self.action_cancel()
+
+    def action_apply(self) -> None:
+        if self._check():
+            self.dismiss(self._read()[0])
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class FrozenLakeApp(App):
@@ -256,6 +412,12 @@ class FrozenLakeApp(App):
         Binding("n,N", "new_episode", "New slips", key_display="n"),
         Binding("g,G", "new_map", "New map", key_display="g"),
         Binding("p,P", "cycle_policy_arrows", "Arrows", key_display="p"),
+        # Tuning keys are listed in the legend panel, like the mode keys.
+        Binding("plus,equals_sign", "rollouts(1)", "More N", show=False),
+        Binding("minus", "rollouts(-1)", "Fewer N", show=False),
+        Binding("right_square_bracket", "depth(1)", "Deeper", show=False),
+        Binding("left_square_bracket", "depth(-1)", "Shallower", show=False),
+        Binding("s,S", "settings", "Settings", key_display="s"),
         Binding("question_mark", "help", "Help"),
         Binding("q,Q", "quit", "Quit", key_display="q"),
     ]
@@ -281,12 +443,14 @@ class FrozenLakeApp(App):
         gamma: float = 1.0,
         rollouts: int = 25,
         horizon: int | None = None,
+        rollout_seed: int | None = None,
         make_map: Callable[[int], MapDesc] | None = None,
     ) -> None:
         """`make_map(seed)` builds the map for a seed; without it the map cannot be changed.
 
-        `depth`, `beta` and `gamma` configure Expectimax; `rollouts` (trajectories per action)
-        and `horizon` (2 × size² by default) configure the Rollout strategies.
+        `depth`, `beta` and `gamma` configure Expectimax; `rollouts` (trajectories per action),
+        `horizon` (2 × size² by default) and `rollout_seed` (derived from the episode seed by
+        default) configure the Rollout strategies.
         """
         super().__init__()
         self.register_theme(FROST_THEME)
@@ -296,6 +460,7 @@ class FrozenLakeApp(App):
         self.depth, self.beta, self.gamma = depth, beta, gamma
         self.rollouts = rollouts
         self.horizon = horizon
+        self.rollout_seed = rollout_seed
         self.make_map = make_map
         self.map_seed = map_seed
         self.episode_seed = episode_seed
@@ -403,7 +568,77 @@ class FrozenLakeApp(App):
         self._restart(self.episode_seed)
 
     def action_help(self) -> None:
-        self.notify(HELP, title="How to explore", timeout=10)
+        self.notify(HELP, title="How to explore", timeout=12)
+
+    def action_rollouts(self, direction: int) -> None:
+        """Move N one step along ROLLOUT_STEPS, from wherever it is now."""
+        if direction > 0:
+            larger = [n for n in ROLLOUT_STEPS if n > self.rollouts]
+            target = larger[0] if larger else None
+        else:
+            smaller = [n for n in ROLLOUT_STEPS if n < self.rollouts]
+            target = smaller[-1] if smaller else None
+        if target is None:
+            edge = "largest" if direction > 0 else "smallest"
+            self.notify(f"N = {self.rollouts} is already the {edge} step. Press S to type any N.")
+            return
+        self.apply_settings(rollouts=target)
+
+    def action_depth(self, change: int) -> None:
+        target = self.depth + change
+        if not 1 <= target <= MAX_QUICK_DEPTH:
+            self.notify(f"Depth stays from 1 to {MAX_QUICK_DEPTH} here. Press S to type any depth.")
+            return
+        self.apply_settings(depth=target)
+
+    def action_settings(self) -> None:
+        values = {
+            "rollouts": self.rollouts,
+            "depth": self.depth,
+            "beta": self.beta,
+            "horizon": self.horizon,
+        }
+
+        def apply(chosen: dict | None) -> None:
+            if chosen is not None:
+                self.apply_settings(**chosen)
+
+        self.push_screen(SettingsScreen(values, 2 * map_size(self.desc) ** 2), apply)
+
+    def apply_settings(self, **changes) -> None:
+        """Change N, depth, beta or horizon, rebuild what depends on them and restart.
+
+        Restarting on the same episode seed replays the same slips, so the only difference
+        from the previous episode is the decisions the new settings make.
+        """
+        current = {
+            "rollouts": self.rollouts,
+            "depth": self.depth,
+            "beta": self.beta,
+            "horizon": self.horizon,
+        }
+        changed = {key: value for key, value in changes.items() if value != current[key]}
+        if not changed:
+            self.notify("Nothing changed.")
+            return
+        self.rollouts = changed.get("rollouts", self.rollouts)
+        self.depth = changed.get("depth", self.depth)
+        self.beta = changed.get("beta", self.beta)
+        self.horizon = changed.get("horizon", self.horizon)
+        if "depth" in changed or "beta" in changed:
+            self._build_expectimax()
+        names = {"rollouts": "N", "depth": "depth", "beta": "beta", "horizon": "horizon"}
+        summary = " · ".join(
+            f"{names[key]} = {value if value is not None else self._horizon()}"
+            for key, value in changed.items()
+        )
+        self.query_one("#log", RichLog).write(f"— {summary} —")
+        self._restart(self.episode_seed)
+        self.notify(f"{summary} · episode restarted on seed {self.episode_seed}")
+
+    def check_action(self, action: str, parameters: tuple) -> bool | None:
+        # Arrows and Space are priority keys; inside the settings they must reach the fields.
+        return not (isinstance(self.screen, ModalScreen) and action in ("choose", "step"))
 
     def watch_chosen_action(self) -> None:
         if self.is_mounted:
@@ -454,11 +689,10 @@ class FrozenLakeApp(App):
             text.append(
                 f"{self.strategy} (Rollout over {self.strategy.base})\n", style=f"bold {ORCHID}"
             )
-            text.append(
-                f"Rollout        N {self.rollouts} · horizon {self._horizon()}\n", style=LILAC
-            )
         else:
             text.append(f"{self.strategy} policy\n", style=f"bold {ORCHID}")
+        # Shown in every mode, so a change made with + / - or the settings is always visible.
+        text.append(f"Rollout        N {self.rollouts} · horizon {self._horizon()}\n", style=LILAC)
 
         text.append("Recommends     ", style="bold")
         text.append(
@@ -559,7 +793,9 @@ class FrozenLakeApp(App):
                 samples=self.rollouts,
                 horizon=self._horizon(),
                 gamma=self.gamma,
-                rng=rollout_rng(self.episode_seed),
+                rng=random.Random(self.rollout_seed)
+                if self.rollout_seed is not None
+                else rollout_rng(self.episode_seed),
             )
             for strategy in (StrategyId.BFS_RO, StrategyId.EXP_RO)
         }
@@ -587,6 +823,18 @@ class FrozenLakeApp(App):
             strategy: policy_decider(build.policy) for strategy, build in self.builds.items()
         }
         self._new_rollout_deciders()
+
+    def _build_expectimax(self) -> None:
+        """Rebuild the Expectimax policy after its depth or beta changed; BFS does not change."""
+        self.builds[StrategyId.EXP] = build_base_policy(
+            StrategyId.EXP,
+            self.desc,
+            self.model,
+            depth=self.depth,
+            beta=self.beta,
+            gamma=self.gamma,
+        )
+        self.deciders[StrategyId.EXP] = policy_decider(self.builds[StrategyId.EXP].policy)
 
     def _show_map_titles(self) -> None:
         n = map_size(self.desc)

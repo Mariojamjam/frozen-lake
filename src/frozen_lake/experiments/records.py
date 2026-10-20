@@ -115,7 +115,7 @@ def write_summary(
         groups[(row["size"], row["strategy"], row["estimator"], row["rollout_n"])].append(row)
 
     episodes_per_map = config.experiment.episodes_per_map
-    with (run_dir / "summary.csv").open("w", newline="") as handle:
+    with (run_dir / "summary.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=SUMMARY_COLUMNS)
         writer.writeheader()
         for key, rows in groups.items():
@@ -142,7 +142,7 @@ def write_summary(
 
 
 def write_json(path: Path, data: object) -> None:
-    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def map_dict(record: MapRecord) -> dict:
@@ -168,7 +168,7 @@ def _git(*args: str) -> str | None:
 
 def _cpu_name() -> str:
     try:
-        for line in Path("/proc/cpuinfo").read_text().splitlines():
+        for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
             if line.startswith("model name"):
                 return line.split(":", 1)[1].strip()
     except OSError:

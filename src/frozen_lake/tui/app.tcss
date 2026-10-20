@@ -64,3 +64,50 @@ Screen {
     border-title-color: $secondary;
     background: $surface;
 }
+
+SettingsScreen {
+    align: center middle;
+    background: $background 60%;
+}
+
+#settings {
+    width: 64;
+    height: auto;
+    padding: 1 2;
+    border: heavy $primary;
+    border-title-color: $accent;
+    border-title-style: bold;
+    background: $surface;
+}
+
+#settings #title {
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#settings .row {
+    height: 3;
+}
+
+#settings Label {
+    width: 30;
+    padding: 1 0;
+}
+
+#settings Input {
+    width: 1fr;
+}
+
+#settings #problems {
+    height: auto;
+    margin: 1 0;
+}
+
+#settings .buttons {
+    height: auto;
+    align: right middle;
+}
+
+#settings Button {
+    margin-left: 2;
+}
