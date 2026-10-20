@@ -254,7 +254,7 @@ def test_damaged_results_are_not_analyzed(run_dir, tmp_path):
 def test_plot_command_writes_the_analysis(run_dir, tmp_path):
     result = runner.invoke(
         app,
-        ["plot", "--run", str(run_dir), "--output-dir", str(tmp_path), "--resamples", "100"],
+        ["plot", "-i", str(run_dir), "-o", str(tmp_path), "--resamples", "100"],
     )
     assert result.exit_code == 0, result.output
     assert "analysis written to" in result.output
@@ -264,7 +264,7 @@ def test_plot_command_writes_the_analysis(run_dir, tmp_path):
 def test_plot_defaults_to_an_analysis_folder_inside_the_run(run_dir, tmp_path):
     copy = tmp_path / "run"
     shutil.copytree(run_dir, copy)
-    result = runner.invoke(app, ["plot", "--run", str(copy), "--resamples", "100"])
+    result = runner.invoke(app, ["plot", "-i", str(copy), "--resamples", "100"])
     assert result.exit_code == 0, result.output
     assert (copy / "analysis" / "analysis.json").exists()
 
@@ -273,11 +273,11 @@ def test_plot_reports_damaged_results(run_dir, tmp_path):
     damaged = tmp_path / "damaged"
     shutil.copytree(run_dir, damaged)
     (damaged / "episode_metrics.csv").unlink()
-    result = runner.invoke(app, ["plot", "--run", str(damaged)])
+    result = runner.invoke(app, ["plot", "-i", str(damaged)])
     assert result.exit_code == 1
     assert "failed validation" in result.output
 
 
 def test_plot_needs_a_run_and_enough_resamples(run_dir):
     assert runner.invoke(app, ["plot"]).exit_code == 2
-    assert runner.invoke(app, ["plot", "--run", str(run_dir), "--resamples", "10"]).exit_code == 2
+    assert runner.invoke(app, ["plot", "-i", str(run_dir), "--resamples", "10"]).exit_code == 2
